@@ -75,27 +75,22 @@ pub fn rename_item(path: String, new_name: String) -> Result<(), String> {
     let parent = p.parent().ok_or("Cannot rename root directory or invalid path")?;
     let new_path = parent.join(new_name);
     
-    // Optional: Check if rename target exists? 
-    // Usually Windows throws an error, but you could use get_unique_path here too if you wanted.
     fs::rename(path, new_path).map_err(|e| e.to_string())
 }
 
 #[command]
 pub fn create_directory(path: String, name: String) -> Result<String, String> {
     let base_path = Path::new(&path).join(name);
-    // Auto-increment if exists
     let final_path = get_unique_path(base_path);
     
     fs::create_dir_all(&final_path).map_err(|e| e.to_string())?;
     
-    // Return the actual name created (in case it was renamed to "Folder (1)")
     Ok(final_path.file_name().unwrap().to_string_lossy().to_string())
 }
 
 #[command]
 pub fn create_file(path: String, name: String) -> Result<String, String> {
     let base_path = Path::new(&path).join(name);
-    // Auto-increment if exists
     let final_path = get_unique_path(base_path);
     
     fs::File::create(&final_path).map_err(|e| e.to_string())?;
@@ -115,7 +110,6 @@ pub fn move_item(source: String, destination: String) -> Result<(), String> {
     let file_name = src_path.file_name().ok_or("Invalid source filename")?;
     let dest_path = dest_folder.join(file_name);
 
-    // FIX: If dragging a file into a folder where it already exists, rename it!
     let final_dest = get_unique_path(dest_path);
 
     fs::rename(source, final_dest).map_err(|e| e.to_string())
@@ -138,7 +132,6 @@ pub fn read_file_base64(path: String) -> Result<String, String> {
 }
 
 fn find_ffmpeg() -> Result<String, String> {
-    // Try just "ffmpeg" first (works if in PATH)
     if Command::new("ffmpeg")
         .arg("-version")
         .stderr(std::process::Stdio::null())
@@ -149,7 +142,6 @@ fn find_ffmpeg() -> Result<String, String> {
         return Ok("ffmpeg".to_string());
     }
     
-    // Common Windows locations
     let common_paths = vec![
         "C:\\ffmpeg\\ffmpeg.exe",
         "C:\\ffmpeg\\bin\\ffmpeg.exe",
@@ -170,19 +162,16 @@ fn find_ffmpeg() -> Result<String, String> {
 pub fn extract_video_thumbnail(path: String) -> Result<String, String> {
     let ffmpeg_path = find_ffmpeg()?;
     
-    // Create temp directory if it doesn't exist
     let temp_dir = std::env::temp_dir().join("dev-toolkit-thumbs");
     fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     
-    // Generate unique temp file name
     let temp_output = temp_dir.join(format!("thumb_{}.png", uuid::Uuid::new_v4()));
     
-    // FFmpeg command to extract first frame as 200x200 thumbnail
     let output = Command::new(&ffmpeg_path)
         .args([
             "-i", &path,
             "-vframes", "1",
-            "-vf", "scale=200:200:force_original_aspect_ratio=decrease,pad=200:200:(ow-iw)/2:(oh-ih)/2",
+            "-vf", "scale=128:128:force_original_aspect_ratio=decrease,pad=128:128:(ow-iw)/2:(oh-ih)/2",
             "-y",
             temp_output.to_str().unwrap()
         ])
@@ -196,12 +185,163 @@ pub fn extract_video_thumbnail(path: String) -> Result<String, String> {
         return Err("Failed to extract video frame".to_string());
     }
 
-    // Read the generated thumbnail
     let bytes = fs::read(&temp_output)
         .map_err(|e| format!("Failed to read thumbnail: {}", e))?;
     
-    // Clean up temp file
     let _ = fs::remove_file(&temp_output);
 
     Ok(general_purpose::STANDARD.encode(&bytes))
+}
+
+fn detect_gpu_encoder(ffmpeg_path: &str) -> Option<String> {
+    let nvenc_test = Command::new(ffmpeg_path)
+        .args(["-hide_banner", "-encoders"])
+        .output();
+    
+    if let Ok(output) = nvenc_test {
+        let encoders = String::from_utf8_lossy(&output.stdout);
+        
+        if encoders.contains("h264_nvenc") {
+            return Some("h264_nvenc".to_string());
+        }
+        if encoders.contains("h264_qsv") {
+            return Some("h264_qsv".to_string());
+        }
+        if encoders.contains("h264_amf") {
+            return Some("h264_amf".to_string());
+        }
+        if encoders.contains("h264_videotoolbox") {
+            return Some("h264_videotoolbox".to_string());
+        }
+    }
+    
+    None
+}
+
+fn try_encode_video(
+    ffmpeg_path: &str,
+    input_path: &str,
+    output_path: &Path,
+    max_duration: u32,
+    resolution: u32,
+    fps: u32,
+    encoder: &str,
+    is_gpu: bool
+) -> Result<(), String> {
+    let mut args = vec![
+        "-i".to_string(),
+        input_path.to_string(),
+        "-t".to_string(),
+        max_duration.to_string(),
+        "-vf".to_string(),
+        format!("scale={}:{}:force_original_aspect_ratio=decrease,fps={}", resolution, resolution, fps),
+        "-c:v".to_string(),
+        encoder.to_string(),
+    ];
+    
+    // Add encoder-specific settings
+    if is_gpu {
+        args.extend(["-preset".to_string(), "fast".to_string()]);
+        if encoder.contains("nvenc") {
+            args.extend([
+                "-rc".to_string(), "vbr".to_string(),
+                "-cq".to_string(), "28".to_string(),
+            ]);
+        }
+    } else {
+        args.extend([
+            "-preset".to_string(), "ultrafast".to_string(),
+            "-crf".to_string(), "28".to_string(),
+        ]);
+    }
+    
+    args.extend([
+        "-an".to_string(),
+        "-y".to_string(),
+        output_path.to_str().unwrap().to_string(),
+    ]);
+    
+    println!("   Trying encoder: {} ({})", encoder, if is_gpu { "GPU" } else { "CPU" });
+    
+    let output = Command::new(ffmpeg_path)
+        .args(&args)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Encoder {} failed: {}", encoder, stderr));
+    }
+    
+    Ok(())
+}
+
+#[command]
+pub fn generate_video_preview(
+    path: String,
+    max_duration: u32,
+    resolution: u32,
+    fps: u32,
+    use_hardware_accel: bool
+) -> Result<String, String> {
+    println!("🎬 generate_video_preview called");
+    println!("   Input: {}", path);
+    println!("   Settings: {}x{} @ {}fps, {}s max", resolution, resolution, fps, max_duration);
+    
+    let ffmpeg_path = find_ffmpeg()?;
+    
+    let temp_dir = std::env::temp_dir().join("dev-toolkit-previews");
+    fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    
+    let preview_output = temp_dir.join(format!("preview_{}.mp4", uuid::Uuid::new_v4()));
+    
+    // Try GPU encoding first if requested
+    if use_hardware_accel {
+        if let Some(gpu_encoder) = detect_gpu_encoder(&ffmpeg_path) {
+            println!("   GPU encoder available: {}", gpu_encoder);
+            
+            // Try GPU encoding
+            match try_encode_video(
+                &ffmpeg_path,
+                &path,
+                &preview_output,
+                max_duration,
+                resolution,
+                fps,
+                &gpu_encoder,
+                true
+            ) {
+                Ok(_) => {
+                    println!("✅ Video preview generated successfully with GPU!");
+                    return Ok(preview_output.to_str().unwrap().to_string());
+                }
+                Err(e) => {
+                    println!("⚠️ GPU encoding failed: {}", e);
+                    println!("   Falling back to CPU encoding...");
+                    // Clean up failed output
+                    let _ = fs::remove_file(&preview_output);
+                }
+            }
+        } else {
+            println!("   No GPU encoder detected, using CPU");
+        }
+    }
+    
+    // Fallback to software encoding
+    println!("   Using software encoder: libx264");
+    try_encode_video(
+        &ffmpeg_path,
+        &path,
+        &preview_output,
+        max_duration,
+        resolution,
+        fps,
+        "libx264",
+        false
+    )?;
+    
+    println!("✅ Video preview generated successfully with CPU!");
+    Ok(preview_output.to_str().unwrap().to_string())
 }

@@ -22,7 +22,8 @@ pub fn run() {
             files::read_file,
             files::write_file,
             files::read_file_base64,
-            files::extract_video_thumbnail
+            files::extract_video_thumbnail,
+            files::generate_video_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

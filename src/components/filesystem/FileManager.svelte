@@ -5,6 +5,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
   import { currentView } from '$lib/stores/viewStore';
+  import { convertFileSrc } from "@tauri-apps/api/core";
 
   let files: any[] = [];
   let isLoading = false;
@@ -13,13 +14,22 @@
 
   // Image extensions to show as thumbnails
   const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'];
-  // Video extensions - just show icon, don't load
+  // Video extensions
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'];
   
   // Limit concurrent thumbnail loads
   let thumbnailQueue: Array<{path: string, name: string}> = [];
   let activeLoads = 0;
   const MAX_CONCURRENT_LOADS = 5;
+
+  // --- VIDEO HOVER PLAYBACK STATE ---
+  let videoPreviewCache = new Map<string, string>(); // fileName -> preview video path
+  let loadingVideoPreviews = new Set<string>();
+  let activeVideos = new Set<HTMLVideoElement>();
+  let hoverTimeouts = new Map<string, number>();
+  const MAX_ACTIVE_VIDEOS = 3;
+  const HOVER_DELAY = 250; // ms - debounce delay before starting playback
+  const MAX_PREVIEW_CACHE = 10; // Max number of video previews to keep in memory
 
   // --- SELECTION STATE ---
   let selectedFiles = new Set<string>();
@@ -46,12 +56,6 @@
   let draggedIsDir: boolean = false;
   let currentDropTarget: string | null = null;
 
-  // --- DRAG SELECTION STATE ---
-  let isDragSelecting = false;
-  let dragSelectStart: { x: number; y: number } | null = null;
-  let dragSelectEnd: { x: number; y: number } | null = null;
-  let dragSelectBox: DOMRect | null = null;
-
   // --- LOADING ---
   $: if ($activeTab && $activeTab.path) {
     loadFiles($activeTab.path);
@@ -72,6 +76,19 @@
     thumbnailQueue = [];
     activeLoads = 0;
     
+    // Clean up active videos
+    console.log('🧹 Cleaning up active videos:', activeVideos.size);
+    activeVideos.forEach(video => {
+      video.pause();
+      video.currentTime = 0;
+    });
+    activeVideos.clear();
+    
+    // Clear hover timeouts
+    console.log('⏱️ Clearing hover timeouts:', hoverTimeouts.size);
+    hoverTimeouts.forEach(timeout => clearTimeout(timeout));
+    hoverTimeouts.clear();
+    
     try {
       files = await invoke("read_directory", { path });
       
@@ -81,6 +98,7 @@
           if (isImageFile(file.name)) {
             thumbnailQueue.push({ path: file.path, name: file.name });
           } else if (isVideoFile(file.name)) {
+            console.log('📹 Found video file:', file.name);
             thumbnailQueue.push({ path: file.path, name: file.name });
           }
         }
@@ -136,9 +154,11 @@
       let mimeType: string;
       
       if (isVideoFile(fileName)) {
-        // Extract video thumbnail
+        console.log('🎬 Loading video thumbnail for:', fileName);
+        // Extract static video thumbnail for initial display
         base64 = await invoke<string>('extract_video_thumbnail', { path: filePath });
         mimeType = 'image/png';
+        console.log('✅ Video thumbnail loaded for:', fileName);
       } else {
         // Load image directly
         base64 = await invoke<string>('read_file_base64', { path: filePath });
@@ -155,6 +175,140 @@
       activeLoads--;
       processQueue();
     }
+  }
+
+  // --- VIDEO PREVIEW GENERATION ---
+  async function generateVideoPreview(filePath: string, fileName: string): Promise<string> {
+    console.log('🎥 generateVideoPreview called for:', fileName);
+    
+    if (videoPreviewCache.has(fileName)) {
+      console.log('💾 Using cached preview for:', fileName);
+      return videoPreviewCache.get(fileName)!;
+    }
+
+    if (loadingVideoPreviews.has(fileName)) {
+      console.log('⏳ Already generating preview for:', fileName, '- waiting...');
+      // Wait for existing generation to complete
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (videoPreviewCache.has(fileName)) {
+            clearInterval(checkInterval);
+            console.log('✅ Preview generation completed while waiting:', fileName);
+            resolve(videoPreviewCache.get(fileName)!);
+          }
+        }, 100);
+      });
+    }
+
+    loadingVideoPreviews.add(fileName);
+    console.log('🔧 Starting preview generation for:', fileName);
+
+    try {
+      // Generate optimized preview clip using GPU-accelerated encoding
+      console.log('📞 Calling generate_video_preview backend command...');
+      const previewPath = await invoke<string>('generate_video_preview', {
+        path: filePath,
+        maxDuration: 3,
+        resolution: 160,
+        fps: 15,
+        useHardwareAccel: true
+      });
+      
+      console.log('✅ Backend returned preview path:', previewPath);
+
+      // Cache management - remove oldest if cache is full
+      if (videoPreviewCache.size >= MAX_PREVIEW_CACHE) {
+        const firstKey = videoPreviewCache.keys().next().value;
+        if (firstKey) {
+          console.log('🗑️ Cache full, removing oldest:', firstKey);
+          videoPreviewCache.delete(firstKey);
+        }
+      }
+
+      videoPreviewCache.set(fileName, previewPath);
+      console.log('💾 Cached preview for:', fileName);
+      return previewPath;
+    } catch (err) {
+      console.error(`❌ Failed to generate video preview for ${fileName}:`, err);
+      throw err;
+    } finally {
+      loadingVideoPreviews.delete(fileName);
+    }
+  }
+
+  // --- VIDEO HOVER HANDLERS ---
+  async function handleVideoHoverStart(videoElement: HTMLVideoElement, fileName: string, filePath: string) {
+    console.log('🖱️ Mouse entered video element:', fileName);
+    
+    // Debounce: only start if user hovers for HOVER_DELAY ms
+    const timeout = window.setTimeout(async () => {
+      console.log('⏰ Debounce timeout triggered for:', fileName);
+      
+      try {
+        // Generate or get cached preview
+        console.log('🎬 Generating/getting preview for:', fileName);
+        const previewPath = await generateVideoPreview(filePath, fileName);
+        console.log('📁 Preview path:', previewPath);
+        
+        // Convert to file URL that Tauri can load
+        const videoSrc = convertFileSrc(previewPath);
+        console.log('🔗 Converted to asset URL:', videoSrc);
+        
+        // Set video source if not already set
+        if (videoElement.src !== videoSrc) {
+          console.log('📝 Setting video src attribute');
+          videoElement.src = videoSrc;
+        } else {
+          console.log('ℹ️ Video src already set');
+        }
+
+        // Limit concurrent playback
+        if (activeVideos.size >= MAX_ACTIVE_VIDEOS) {
+          console.log('⚠️ Max active videos reached, pausing oldest');
+          // Pause oldest video
+          const oldestVideo = activeVideos.values().next().value;
+          if (oldestVideo) {
+            oldestVideo.pause();
+            oldestVideo.currentTime = 0;
+            activeVideos.delete(oldestVideo);
+          }
+        }
+
+        activeVideos.add(videoElement);
+        console.log('▶️ Attempting to play video for:', fileName);
+        console.log('📊 Active videos:', activeVideos.size);
+        
+        await videoElement.play().catch(err => {
+          console.warn('⚠️ Video play failed:', err);
+        });
+        
+        console.log('✅ Video play() called successfully for:', fileName);
+      } catch (err) {
+        console.error('❌ Failed to start video preview:', err);
+      }
+    }, HOVER_DELAY);
+
+    hoverTimeouts.set(fileName, timeout);
+    console.log('⏱️ Hover timeout set for:', fileName, '- delay:', HOVER_DELAY, 'ms');
+  }
+
+  function handleVideoHoverEnd(videoElement: HTMLVideoElement, fileName: string) {
+    console.log('🖱️ Mouse left video element:', fileName);
+    
+    // Clear debounce timeout
+    const timeout = hoverTimeouts.get(fileName);
+    if (timeout) {
+      console.log('🚫 Clearing hover timeout for:', fileName);
+      clearTimeout(timeout);
+      hoverTimeouts.delete(fileName);
+    }
+
+    // Stop playback
+    console.log('⏸️ Pausing and resetting video:', fileName);
+    videoElement.pause();
+    videoElement.currentTime = 0;
+    activeVideos.delete(videoElement);
+    console.log('📊 Active videos after hover end:', activeVideos.size);
   }
 
   // Helper function for cross-platform path joining
@@ -252,69 +406,6 @@
         selectedFiles = selectedFiles;
     }
     showMenu = true;
-  }
-
-  // --- DRAG SELECTION HANDLERS ---
-  function handleMouseDown(e: MouseEvent) {
-    // Only start drag selection on background clicks (not on items)
-    if (e.target !== e.currentTarget) return;
-    
-    // Don't interfere with context menu
-    if (e.button === 2) return;
-    
-    isDragSelecting = true;
-    dragSelectStart = { x: e.clientX, y: e.clientY };
-    dragSelectEnd = { x: e.clientX, y: e.clientY };
-    
-    // Clear selection unless ctrl/cmd is held
-    if (!e.ctrlKey && !e.metaKey) {
-      selectedFiles.clear();
-      selectedFiles = selectedFiles;
-    }
-  }
-
-  function handleMouseMove(e: MouseEvent) {
-    if (!isDragSelecting || !dragSelectStart) return;
-    
-    dragSelectEnd = { x: e.clientX, y: e.clientY };
-    
-    // Calculate selection box
-    const left = Math.min(dragSelectStart.x, dragSelectEnd.x);
-    const top = Math.min(dragSelectStart.y, dragSelectEnd.y);
-    const width = Math.abs(dragSelectEnd.x - dragSelectStart.x);
-    const height = Math.abs(dragSelectEnd.y - dragSelectStart.y);
-    
-    dragSelectBox = new DOMRect(left, top, width, height);
-    
-    // Check which items intersect with selection box
-    const tempSelection = new Set<string>();
-    files.forEach((file, i) => {
-      const element = document.getElementById(`file-btn-${i}`);
-      if (element) {
-        const rect = element.getBoundingClientRect();
-        if (boxesIntersect(dragSelectBox!, rect)) {
-          tempSelection.add(file.name);
-        }
-      }
-    });
-    
-    selectedFiles = tempSelection;
-  }
-
-  function handleMouseUp(e: MouseEvent) {
-    isDragSelecting = false;
-    dragSelectStart = null;
-    dragSelectEnd = null;
-    dragSelectBox = null;
-  }
-
-  function boxesIntersect(box1: DOMRect, box2: DOMRect): boolean {
-    return !(
-      box1.right < box2.left ||
-      box1.left > box2.right ||
-      box1.bottom < box2.top ||
-      box1.top > box2.bottom
-    );
   }
 
   // --- DRAG AND DROP HANDLERS (CONTAINER-BASED) ---
@@ -465,65 +556,83 @@
         creationInput.focus();
         if (type === 'file') {
             const dotIndex = creationName.lastIndexOf('.');
-            if (dotIndex > 0) creationInput.setSelectionRange(0, dotIndex);
-            else creationInput.select();
-        } else { creationInput.select(); }
-        creationInput.scrollIntoView({ block: "nearest" });
+            if (dotIndex > 0) {
+                creationInput.setSelectionRange(0, dotIndex);
+            } else {
+                creationInput.select();
+            }
+        } else {
+            creationInput.select();
+        }
     }
   }
 
   async function confirmCreation() {
-    if (!creationState || !creationName.trim()) { creationState = null; return; }
+    if (!creationState || !creationName.trim()) {
+        cancelCreation();
+        return;
+    }
+    
     const currentPath = $activeTab?.path;
-    const name = creationName.trim();
-    const type = creationState.type;
-    creationState = null; 
+    if (!currentPath) return;
 
-    if (currentPath) {
-        try {
-            if (type === 'folder') await invoke('create_directory', { path: currentPath, name });
-            else await invoke('create_file', { path: currentPath, name });
-            await loadFiles(currentPath, name);
-        } catch (err) { alert(`Error creating ${type}: ${err}`); }
+    try {
+        let actualName: string;
+        if (creationState.type === 'folder') {
+            actualName = await invoke<string>('create_directory', { path: currentPath, name: creationName });
+        } else {
+            actualName = await invoke<string>('create_file', { path: currentPath, name: creationName });
+        }
+        await loadFiles(currentPath, actualName);
+    } catch (err) {
+        alert('Error creating: ' + err);
+    } finally {
+        creationState = null;
+        creationName = "";
     }
   }
 
-  function cancelCreation() { creationState = null; }
+  function cancelCreation() {
+    creationState = null;
+    creationName = "";
+  }
 
   async function submitRename() {
-    if (!renamingFile || !renameInput) return;
-    const newName = renameInput.value.trim();
-    if (newName && newName !== renamingFile) {
-        const currentPath = $activeTab?.path;
-        const oldPath = joinPath(currentPath!, renamingFile);
-        try {
-            await invoke('rename_item', { path: oldPath, newName });
-            await loadFiles(currentPath!, newName); 
-        } catch (err) { alert("Rename failed: " + err); }
+    if (!renamingFile) return;
+    const newName = renameInput?.value.trim();
+    if (!newName || newName === renamingFile) {
+        renamingFile = null;
+        return;
     }
-    renamingFile = null;
+
+    const currentPath = $activeTab?.path;
+    if (!currentPath) return;
+
+    const fullPath = joinPath(currentPath, renamingFile);
+    try {
+        await invoke('rename_item', { path: fullPath, newName });
+        await loadFiles(currentPath, newName);
+    } catch (err) {
+        alert('Rename error: ' + err);
+    } finally {
+        renamingFile = null;
+    }
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (renamingFile || creationState) {
-        if (event.key === 'Escape') { renamingFile = null; cancelCreation(); }
-        return; 
-    }
-    if (files.length === 0) return;
-    if (event.key === 'Backspace') { fileTabs.goBack(); return; }
+    if (renamingFile || creationState || focusedIndex === -1) return;
     
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)) {
       event.preventDefault();
-      if (focusedIndex === -1) focusedIndex = 0; 
-      else {
-        const itemWidth = 100; 
-        const containerWidth = gridContainer?.clientWidth || 800;
-        const columns = Math.floor(containerWidth / itemWidth);
-        if (event.key === 'ArrowRight') focusedIndex = Math.min(files.length - 1, focusedIndex + 1);
-        if (event.key === 'ArrowLeft') focusedIndex = Math.max(0, focusedIndex - 1);
-        if (event.key === 'ArrowDown') focusedIndex = Math.min(files.length - 1, focusedIndex + columns);
-        if (event.key === 'ArrowUp') focusedIndex = Math.max(0, focusedIndex - columns);
-      }
+      const itemWidth = 100;
+      const containerWidth = gridContainer?.clientWidth || 800;
+      const columns = Math.floor(containerWidth / itemWidth);
+      
+      if (event.key === 'ArrowRight') focusedIndex = Math.min(files.length - 1, focusedIndex + 1);
+      if (event.key === 'ArrowLeft') focusedIndex = Math.max(0, focusedIndex - 1);
+      if (event.key === 'ArrowDown') focusedIndex = Math.min(files.length - 1, focusedIndex + columns);
+      if (event.key === 'ArrowUp') focusedIndex = Math.max(0, focusedIndex - columns);
+      
       if (!event.ctrlKey) {
         if (event.shiftKey) selectedFiles.add(files[focusedIndex].name);
         else { selectedFiles.clear(); selectedFiles.add(files[focusedIndex].name); }
@@ -551,10 +660,6 @@
   <div 
     class="grid-container" 
     bind:this={gridContainer}
-    on:mousedown={handleMouseDown}
-    on:mousemove={handleMouseMove}
-    on:mouseup={handleMouseUp}
-    on:mouseleave={handleMouseUp}
   >
     {#if isLoading && !files.length}
         <div class="loading">Loading...</div>
@@ -587,12 +692,40 @@
             <div class="icon">
               {#if file.is_dir}
                 📁
+              {:else if isVideoFile(file.name)}
+                <!-- Video with hover playback -->
+                <div class="video-container">
+                  {#if imageThumbnails.has(file.name)}
+                    <!-- Show static thumbnail initially -->
+                    <img 
+                      src={imageThumbnails.get(file.name)} 
+                      alt={file.name} 
+                      class="thumbnail video-poster" 
+                      class:hidden={loadingVideoPreviews.has(file.name)}
+                    />
+                  {:else if loadingThumbnails.has(file.name)}
+                    <div class="loading-indicator">⏳</div>
+                  {:else}
+                    🎬
+                  {/if}
+                  
+                  <!-- Video element for hover playback (GPU-accelerated) -->
+                  <video
+                    class="thumbnail video-preview"
+                    muted
+                    loop
+                    preload="none"
+                    on:mouseenter={(e) => handleVideoHoverStart(e.currentTarget, file.name, file.path)}
+                    on:mouseleave={(e) => handleVideoHoverEnd(e.currentTarget, file.name)}
+                  >
+                    <!-- Fallback content -->
+                    <track kind="captions" />
+                  </video>
+                </div>
               {:else if imageThumbnails.has(file.name)}
                 <img src={imageThumbnails.get(file.name)} alt={file.name} class="thumbnail" />
               {:else if loadingThumbnails.has(file.name)}
                 <div class="loading-indicator">⏳</div>
-              {:else if isVideoFile(file.name)}
-                🎬
               {:else}
                 📄
               {/if}
@@ -609,12 +742,7 @@
                     on:keydown={(e) => e.key === 'Enter' && submitRename()}
                 />
             {:else}
-                <span 
-                    class="label" 
-                    class:label-selected={selectedFiles.has(file.name)}
-                >
-                    {file.name}
-                </span>
+                <span class="label">{file.name}</span>
             {/if}
         </div>
         {/each}
@@ -645,19 +773,6 @@
             </div>
         {/if}
 
-    {/if}
-
-    <!-- Drag Selection Box -->
-    {#if isDragSelecting && dragSelectStart && dragSelectEnd}
-      <div 
-        class="selection-box"
-        style="
-          left: {Math.min(dragSelectStart.x, dragSelectEnd.x)}px;
-          top: {Math.min(dragSelectStart.y, dragSelectEnd.y)}px;
-          width: {Math.abs(dragSelectEnd.x - dragSelectStart.x)}px;
-          height: {Math.abs(dragSelectEnd.y - dragSelectStart.y)}px;
-        "
-      ></div>
     {/if}
   </div>
 
@@ -726,7 +841,7 @@
     display: flex; 
     flex-direction: column; 
     align-items: center; 
-    justify-content: flex-start; /* Changed from center to flex-start */
+    justify-content: center; 
     cursor: default; 
     color: var(--text-muted); 
     text-align: center; 
@@ -751,9 +866,6 @@
     background-color: var(--selection); 
     border-color: var(--border-focus); 
     color: var(--text-main); 
-    z-index: 100; /* Bring selected items to front so full name appears above other items */
-    min-height: 120px; /* Expand height to accommodate longer filenames */
-    height: auto; /* Allow height to grow dynamically */
   }
 
   .grid-item.focused { 
@@ -781,14 +893,22 @@
   .icon { 
     font-size: 32px; 
     margin-bottom: 6px; 
-    margin-top: 5px; /* Add consistent top margin */
     pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 60px;
     height: 60px;
-    flex-shrink: 0; /* Prevent icon from shrinking */
+  }
+
+  .video-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto; /* CRITICAL: Allow pointer events for video hover */
   }
 
   .thumbnail {
@@ -797,6 +917,31 @@
     object-fit: cover;
     border-radius: 4px;
     pointer-events: none;
+  }
+
+  .video-poster {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
+
+  .video-poster.hidden {
+    display: none;
+  }
+
+  .video-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    opacity: 1 !important;
+    transition: opacity 0.2s;
+    pointer-events: auto !important; /* CRITICAL: Override .thumbnail's pointer-events: none */
+  }
+
+  .video-preview[src]:not([src=""]) {
+    opacity: 1;
   }
 
   .loading-indicator {
@@ -809,7 +954,6 @@
     50% { opacity: 0.5; }
   }
   
-  /* Default label - truncated with ellipsis */
   .label { 
     font-size: 12px; 
     word-break: break-word; 
@@ -820,21 +964,6 @@
     -webkit-line-clamp: 2; 
     -webkit-box-orient: vertical;
     pointer-events: none;
-  }
-
-  /* Selected label - shows full name expanding downward */
-  .label-selected {
-    overflow: visible;
-    text-overflow: clip;
-    display: block;
-    -webkit-line-clamp: unset;
-    -webkit-box-orient: unset;
-    white-space: normal;
-    word-wrap: break-word;
-    max-height: none;
-    position: relative; /* Changed from absolute to relative */
-    padding: 4px;
-    margin-top: 0; /* Remove extra spacing */
   }
 
   .rename-input {
@@ -860,13 +989,7 @@
     border: 1px solid rgba(255,255,255, 0.3);
     box-shadow: none;
   }
+  
 
-  /* Drag Selection Box */
-  .selection-box {
-    position: fixed;
-    border: 2px solid var(--border-focus);
-    background-color: rgba(59, 130, 246, 0.2);
-    pointer-events: none;
-    z-index: 10001;
-  }
+  
 </style>
