@@ -274,7 +274,6 @@
 
 <div
   class="file-manager"
-  on:click={handleBackgroundClick}
   on:contextmenu={handleContextMenu}
   role="presentation"
 >

@@ -135,6 +135,7 @@ function createFileSelection() {
      * Clear all selections
      */
     clearSelection: () => {
+      console.log('clearSelection called! Stack:', new Error().stack);
       update(state => ({
         ...state,
         selectedFiles: new Set<string>(),

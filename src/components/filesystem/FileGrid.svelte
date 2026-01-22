@@ -5,8 +5,8 @@
         fileSelection,
         selectedFiles,
         focusedIndex,
-    } from "../filesystem/fileoperations/useFileSelection";
-    import { fileDragDrop } from "../filesystem/fileoperations/useFileDragDrop";
+    } from ".//fileoperations/useFileSelection";
+    import { fileDragDrop } from ".//fileoperations/useFileDragDrop";
 
     export let files: any[] = [];
      export let isLoading: boolean = false;
@@ -38,10 +38,11 @@
      function handleBackgroundClick(event: MouseEvent) {
        console.log('FileGrid handleBackgroundClick - justFinishedDrag:', justFinishedDrag);
        
-       // If we just finished dragging, ignore the click event
+       // If we just finished dragging, ignore the click event and stop it from bubbling
        if (justFinishedDrag) {
          justFinishedDrag = false;
          console.log('Ignoring click after drag');
+         event.stopPropagation(); // ADD THIS LINE
          return;
        }
        
@@ -75,8 +76,10 @@
        isDragSelecting = true; // Mark that we're potentially dragging
        
        // Add window listeners for mousemove and mouseup
+       console.log('Adding window event listeners');
        window.addEventListener('mousemove', handleMouseMove);
        window.addEventListener('mouseup', handleMouseUp);
+       console.log('Event listeners added');
      }
    
      function handleMouseMove(event: MouseEvent) {
