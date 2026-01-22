@@ -8,10 +8,10 @@
   import FileGrid from './FileGrid.svelte';
   import ContextMenu from './ContextMenu.svelte';
   
-  import { fileSelection, selectedFiles } from '../filesystem/fileoperations/useFileSelection';
-  import { fileDragDrop } from '../filesystem/fileoperations/useFileDragDrop';
-  import { thumbnailLoader } from '../filesystem/fileoperations/useThumbnailLoader';
-  import { joinPath } from '../filesystem/fileoperations/fileUtils';
+  import { fileSelection, selectedFiles } from './/fileoperations/useFileSelection';
+  import { fileDragDrop } from './/fileoperations/useFileDragDrop';
+  import { thumbnailLoader } from './/fileoperations/useThumbnailLoader';
+  import { joinPath } from './/fileoperations/fileUtils';
 
   let files: any[] = [];
   let isLoading = false;

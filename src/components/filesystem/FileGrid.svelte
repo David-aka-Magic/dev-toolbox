@@ -80,6 +80,8 @@
      }
    
      function handleMouseMove(event: MouseEvent) {
+       console.log('handleMouseMove - isDragSelecting:', isDragSelecting, 'dragStarted:', dragStarted);
+       
        if (!isDragSelecting) return;
        
        const rect = gridContainer.getBoundingClientRect();
@@ -103,6 +105,7 @@
        }
        
        if (dragStarted) {
+         console.log('About to call updateDragSelection');
          // Calculate which files are in the selection box
          updateDragSelection();
        }
@@ -128,15 +131,22 @@
      }
    
      function updateDragSelection() {
+       console.log('updateDragSelection called!');
        const minX = Math.min(dragStartX, dragCurrentX);
        const maxX = Math.max(dragStartX, dragCurrentX);
        const minY = Math.min(dragStartY, dragCurrentY);
        const maxY = Math.max(dragStartY, dragCurrentY);
        
+       console.log('Selection box:', { minX, maxX, minY, maxY });
+       console.log('Files to check:', files.length);
+       
        // Check each file item to see if it intersects with selection box
        files.forEach((file, i) => {
          const element = document.getElementById(`file-btn-${i}`);
-         if (!element) return;
+         if (!element) {
+           console.log(`Element file-btn-${i} not found`);
+           return;
+         }
          
          const rect = element.getBoundingClientRect();
          const containerRect = gridContainer.getBoundingClientRect();
@@ -148,7 +158,10 @@
          
          const intersects = !(itemRight < minX || itemLeft > maxX || itemBottom < minY || itemTop > maxY);
          
+         console.log(`File ${file.name}:`, { itemLeft, itemRight, itemTop, itemBottom, intersects });
+         
          if (intersects) {
+           console.log('Adding to selection:', file.name);
            fileSelection.addToSelection(file.name, i);
          }
        });
