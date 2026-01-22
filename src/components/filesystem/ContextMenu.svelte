@@ -1,19 +1,36 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from "svelte";
+  import { onMount } from "svelte";
   import { fade } from "svelte/transition";
 
   export let x: number;
   export let y: number;
   export let options: { label: string; action: string; danger?: boolean }[] = [];
 
-  const dispatch = createEventDispatcher();
+  // Callback props instead of createEventDispatcher
+  export let onclose: (() => void) | undefined = undefined;
+  export let onclick: ((action: string) => void) | undefined = undefined;
+
   let menuElement: HTMLDivElement;
+  let isReady = false;
 
   // Close if clicking outside
   function handleClickOutside(event: MouseEvent) {
+    if (!isReady) return; // Don't handle clicks until we're ready
+    
     if (menuElement && !menuElement.contains(event.target as Node)) {
-      dispatch("close");
+      onclose?.();
     }
+  }
+
+  function handleContextMenuOutside(event: MouseEvent) {
+    if (!isReady) return; // Don't handle clicks until we're ready
+    
+    // Close on any new right-click anywhere
+    onclose?.();
+  }
+
+  function handleMenuClick(action: string) {
+    onclick?.(action);
   }
 
   // Adjust position if it goes off-screen
@@ -24,11 +41,17 @@
       if (y + rect.height > window.innerHeight) y -= rect.height;
     }
     
-    window.addEventListener("click", handleClickOutside);
-    window.addEventListener("contextmenu", handleClickOutside); // Close on new right-click
+    // Use setTimeout to add listeners AFTER the current event has finished
+    const timeoutId = setTimeout(() => {
+      isReady = true;
+      window.addEventListener("click", handleClickOutside);
+      window.addEventListener("contextmenu", handleContextMenuOutside);
+    }, 0);
+    
     return () => {
+      clearTimeout(timeoutId);
       window.removeEventListener("click", handleClickOutside);
-      window.removeEventListener("contextmenu", handleClickOutside);
+      window.removeEventListener("contextmenu", handleContextMenuOutside);
     };
   });
 </script>
@@ -46,7 +69,7 @@
       <button 
         class="menu-item" 
         class:danger={option.danger}
-        on:click={() => dispatch("click", option.action)}
+        on:click={() => handleMenuClick(option.action)}
       >
         {option.label}
       </button>
