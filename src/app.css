@@ -1,0 +1,59 @@
+/* src/app.css */
+:root {
+  /* DEFAULT (DARK) THEME VARIABLES */
+  --bg-main: #1e1e1e;          /* Main Viewport Background */
+  --bg-panel: #252526;         /* Sidebars / Panels */
+  --bg-header: #18181b;        /* TitleBar / NavBar */
+  --bg-input: #2d2d30;         /* Address Bar / Inputs */
+  
+  --border: #27272a;           /* Borders */
+  --border-focus: #3b82f6;     /* Blue focus rings */
+  
+  --text-main: #ffffff;
+  --text-muted: #9ca3af;
+  
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --selection: rgba(59, 130, 246, 0.2);
+  
+  /* Tab Colors */
+  --tab-inactive-bg: transparent;
+  --tab-inactive-fg: #888888;
+  --tab-active-bg: #1e1e1e;
+  --tab-active-fg: #ffffff;
+  --tab-active-border: #3b82f6;
+}
+
+/* LIGHT THEME OVERRIDES */
+:root[data-theme="light"] {
+  --bg-main: #ffffff;
+  --bg-panel: #f3f4f6;
+  --bg-header: #e4e4e7;
+  --bg-input: #ffffff;
+  
+  --border: #d1d5db;
+  --border-focus: #2563eb;
+  
+  --text-main: #1f2937;
+  --text-muted: #6b7280;
+  
+  --hover-bg: rgba(0, 0, 0, 0.05);
+  --selection: rgba(37, 99, 235, 0.1);
+  
+  --tab-inactive-bg: transparent;
+  --tab-inactive-fg: #6b7280;
+  --tab-active-bg: #ffffff;
+  --tab-active-fg: #000000;
+  --tab-active-border: #2563eb;
+}
+
+/* GLOBAL RESET */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  overflow: hidden; /* App shouldn't have body scrollbars */
+}
+
+button { font-family: inherit; }
