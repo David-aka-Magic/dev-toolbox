@@ -8,10 +8,10 @@
   import FileGrid from './FileGrid.svelte';
   import ContextMenu from './ContextMenu.svelte';
   
-  import { fileSelection, selectedFiles } from './/fileoperations/useFileSelection';
-  import { fileDragDrop } from './/fileoperations/useFileDragDrop';
-  import { thumbnailLoader } from './/fileoperations/useThumbnailLoader';
-  import { joinPath } from './/fileoperations/fileUtils';
+  import { fileSelection, selectedFiles } from './fileoperations/useFileSelection';
+  import { fileDragDrop } from './fileoperations/useFileDragDrop';
+  import { thumbnailLoader } from './fileoperations/useThumbnailLoader';
+  import { joinPath } from './fileoperations/fileUtils';
 
   let files: any[] = [];
   let isLoading = false;
@@ -85,9 +85,23 @@
         renamingFile = menuTargetFile;
       }
       if (action === 'delete') {
-        if (confirm(`Delete "${menuTargetFile}"?`)) {
+        // Delete all selected files, or just the menu target if nothing selected
+        const filesToDelete = $selectedFiles.size > 0 
+          ? Array.from($selectedFiles) 
+          : (menuTargetFile ? [menuTargetFile] : []);
+        
+        if (filesToDelete.length === 0) return;
+        
+        const confirmMessage = filesToDelete.length === 1
+          ? `Delete "${filesToDelete[0]}"?`
+          : `Delete ${filesToDelete.length} items?`;
+        
+        if (confirm(confirmMessage)) {
           try {
-            await invoke('delete_item', { path: fullPath });
+            for (const fileName of filesToDelete) {
+              const fullPath = joinPath(currentPath, fileName);
+              await invoke('delete_item', { path: fullPath });
+            }
             loadFiles(currentPath);
           } catch (err) {
             alert('Error deleting: ' + err);
@@ -145,9 +159,6 @@
     const { event: mouseEvent, fileName } = detail;
     
     if (creationType) return;
-
-    // Don't let this close the menu if it's already being set
-    const willShowMenu = true;
 
     menuX = mouseEvent.clientX;
     menuY = mouseEvent.clientY;
@@ -249,6 +260,33 @@
     }
 
     if (files.length === 0) return;
+
+    // Delete key - delete selected files
+    if (event.key === 'Delete') {
+      event.preventDefault();
+      const currentPath = $activeTab?.path;
+      if (!currentPath || $selectedFiles.size === 0) return;
+      
+      const filesToDelete = Array.from($selectedFiles);
+      const confirmMessage = filesToDelete.length === 1
+        ? `Delete "${filesToDelete[0]}"?`
+        : `Delete ${filesToDelete.length} items?`;
+      
+      if (confirm(confirmMessage)) {
+        (async () => {
+          try {
+            for (const fileName of filesToDelete) {
+              const fullPath = joinPath(currentPath, fileName);
+              await invoke('delete_item', { path: fullPath });
+            }
+            loadFiles(currentPath);
+          } catch (err) {
+            alert('Error deleting: ' + err);
+          }
+        })();
+      }
+      return;
+    }
 
     if (event.key === 'Backspace') {
       fileTabs.goBack();

@@ -10,6 +10,8 @@ export interface DragState {
   draggedFile: string | null;
   draggedFilePath: string | null;
   draggedIsDir: boolean;
+  draggedFiles: string[]; // Array of all files being dragged
+  draggedFilePaths: Map<string, string>; // Map of fileName -> filePath
   currentDropTarget: string | null;
 }
 
@@ -18,6 +20,8 @@ function createFileDragDrop() {
     draggedFile: null,
     draggedFilePath: null,
     draggedIsDir: false,
+    draggedFiles: [],
+    draggedFilePaths: new Map(),
     currentDropTarget: null
   });
 
@@ -25,22 +29,38 @@ function createFileDragDrop() {
     subscribe,
 
     /**
-     * Handle drag start
+     * Handle drag start - supports multiple files
      */
-    handleDragStart: (event: DragEvent, file: any) => {
+    handleDragStart: (event: DragEvent, file: any, selectedFiles?: Set<string>, allFiles?: any[]) => {
       if (!event.dataTransfer) return;
 
-      console.log("🚀 DRAG START:", file.name, "IsDir:", file.is_dir);
+      let filesToDrag: any[] = [file];
+      
+      // If selectedFiles is provided and the dragged file is in selection, drag all
+      if (selectedFiles && allFiles && selectedFiles.has(file.name) && selectedFiles.size > 1) {
+        filesToDrag = allFiles.filter(f => selectedFiles.has(f.name));
+        console.log(`🚀 DRAG START: ${filesToDrag.length} selected files`);
+      } else {
+        console.log("🚀 DRAG START:", file.name, "IsDir:", file.is_dir);
+      }
+
+      // Build the file paths map
+      const pathsMap = new Map<string, string>();
+      filesToDrag.forEach(f => {
+        pathsMap.set(f.name, f.path);
+      });
 
       set({
-        draggedFile: file.name,
+        draggedFile: file.name, // Keep for backward compatibility
         draggedFilePath: file.path,
         draggedIsDir: file.is_dir,
+        draggedFiles: filesToDrag.map(f => f.name),
+        draggedFilePaths: pathsMap,
         currentDropTarget: null
       });
 
       event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", file.name);
+      event.dataTransfer.setData("text/plain", filesToDrag.map(f => f.name).join(', '));
 
       // Create custom drag image
       const dragImg = document.createElement('div');
@@ -51,7 +71,13 @@ function createFileDragDrop() {
       dragImg.style.color = 'white';
       dragImg.style.borderRadius = '4px';
       dragImg.style.fontSize = '12px';
-      dragImg.textContent = `${file.is_dir ? '📁' : '📄'} ${file.name}`;
+      
+      if (filesToDrag.length === 1) {
+        dragImg.textContent = `${file.is_dir ? '📁' : '📄'} ${file.name}`;
+      } else {
+        dragImg.textContent = `📦 ${filesToDrag.length} items`;
+      }
+      
       document.body.appendChild(dragImg);
       event.dataTransfer.setDragImage(dragImg, 0, 0);
       setTimeout(() => document.body.removeChild(dragImg), 0);
@@ -66,6 +92,8 @@ function createFileDragDrop() {
         draggedFile: null,
         draggedFilePath: null,
         draggedIsDir: false,
+        draggedFiles: [],
+        draggedFilePaths: new Map(),
         currentDropTarget: null
       });
     },
@@ -78,7 +106,7 @@ function createFileDragDrop() {
       
       console.log("👋 ITEM ENTER:", file.name);
       
-      if (!state.draggedFile || !file.is_dir || file.name === state.draggedFile) {
+      if (!state.draggedFile || !file.is_dir || state.draggedFiles.includes(file.name)) {
         return;
       }
       
@@ -92,7 +120,7 @@ function createFileDragDrop() {
     handleItemDragOver: (event: DragEvent, file: any) => {
       const state = get({ subscribe });
       
-      if (!state.draggedFile || !file.is_dir || file.name === state.draggedFile) {
+      if (!state.draggedFile || !file.is_dir || state.draggedFiles.includes(file.name)) {
         return;
       }
 
@@ -117,7 +145,7 @@ function createFileDragDrop() {
     },
 
     /**
-     * Handle drop on a folder
+     * Handle drop on a folder - supports multiple files
      */
     handleItemDrop: async (event: DragEvent, targetFolder: any, currentPath: string, onComplete: () => void) => {
       event.preventDefault();
@@ -130,28 +158,33 @@ function createFileDragDrop() {
 
       if (!targetFolder.is_dir || !state.draggedFile) return;
 
-      console.log("💧 DROP on:", targetFolder.name);
+      const destPath = targetFolder.path;
+
+      console.log(`💧 DROP ${state.draggedFiles.length} item(s) on:`, targetFolder.name);
 
       if (!currentPath) return;
 
-      const sourcePath = state.draggedFilePath || joinPath(currentPath, state.draggedFile);
-      const destPath = targetFolder.path;
-
-      if (sourcePath === destPath) {
-        console.log("⚠️ Cannot drop folder into itself");
-        return;
-      }
-
-      if (state.draggedIsDir && destPath.startsWith(sourcePath)) {
-        alert("Cannot move a folder into its own subdirectory");
-        return;
-      }
-
-      console.log("📦 Moving:", sourcePath, "->", destPath);
-
+      // Move all files (or just one if draggedFiles has only one item)
       try {
-        await invoke('move_item', { source: sourcePath, destination: destPath });
-        onComplete(); // Reload files
+        for (const fileName of state.draggedFiles) {
+          const sourcePath = state.draggedFilePaths.get(fileName) || joinPath(currentPath, fileName);
+          
+          // Safety checks
+          if (sourcePath === destPath) {
+            console.log("⚠️ Cannot drop folder into itself");
+            continue;
+          }
+
+          // Check if dropping a folder into its own subdirectory
+          if (destPath.startsWith(sourcePath + '\\') || destPath.startsWith(sourcePath + '/')) {
+            alert(`Cannot move "${fileName}" into its own subdirectory`);
+            continue;
+          }
+
+          console.log(`📦 Moving: ${fileName} -> ${destPath}`);
+          await invoke('move_item', { source: sourcePath, destination: destPath });
+        }
+        onComplete(); // Reload files after all moves complete
       } catch (err) {
         console.error("❌ Move error:", err);
         alert("Move failed: " + err);

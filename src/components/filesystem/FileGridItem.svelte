@@ -177,59 +177,61 @@
   role="button"
   tabindex="0"
 >
-  <div class="icon">
-    {#if file.is_dir}
-      📁
-    {:else if isVideo}
-      <!-- Video with hover playback -->
-      <div class="video-container">
-        {#if thumbnail}
-          <!-- Static thumbnail as poster -->
-          <img 
-            src={thumbnail} 
-            alt={file.name} 
-            class="thumbnail video-poster"
-          />
-        {:else if isLoadingThumbnail}
-          <div class="loading-indicator">⏳</div>
-        {:else}
-          🎬
-        {/if}
-        
-        <!-- Video element for hover playback -->
-        <video
-          class="thumbnail video-preview"
-          muted
-          loop
-          preload="none"
-          on:mouseenter={(e) => handleVideoHoverStart(e.currentTarget)}
-          on:mouseleave={(e) => handleVideoHoverEnd(e.currentTarget)}
-        >
-          <track kind="captions" />
-        </video>
-      </div>
-    {:else if thumbnail}
-      <img src={thumbnail} alt={file.name} class="thumbnail" />
-    {:else if isLoadingThumbnail}
-      <div class="loading-indicator">⏳</div>
+  <div class="item-content" class:selected={isSelected}>
+    <div class="icon">
+      {#if file.is_dir}
+        📁
+      {:else if isVideo}
+        <!-- Video with hover playback -->
+        <div class="video-container">
+          {#if thumbnail}
+            <!-- Static thumbnail as poster -->
+            <img 
+              src={thumbnail} 
+              alt={file.name} 
+              class="thumbnail video-poster"
+            />
+          {:else if isLoadingThumbnail}
+            <div class="loading-indicator">⏳</div>
+          {:else}
+            🎬
+          {/if}
+          
+          <!-- Video element for hover playback -->
+          <video
+            class="thumbnail video-preview"
+            muted
+            loop
+            preload="none"
+            on:mouseenter={(e) => handleVideoHoverStart(e.currentTarget)}
+            on:mouseleave={(e) => handleVideoHoverEnd(e.currentTarget)}
+          >
+            <track kind="captions" />
+          </video>
+        </div>
+      {:else if thumbnail}
+        <img src={thumbnail} alt={file.name} class="thumbnail" />
+      {:else if isLoadingThumbnail}
+        <div class="loading-indicator">⏳</div>
+      {:else}
+        📄
+      {/if}
+    </div>
+
+    {#if isRenaming}
+      <input
+        bind:this={renameInput}
+        bind:value={renameValue}
+        type="text"
+        class="rename-input"
+        on:click={handleRenameClick}
+        on:blur={handleRenameBlur}
+        on:keydown={handleRenameKeydown}
+      />
     {:else}
-      📄
+      <span class="label" title={file.name}>{file.name}</span>
     {/if}
   </div>
-
-  {#if isRenaming}
-    <input
-      bind:this={renameInput}
-      bind:value={renameValue}
-      type="text"
-      class="rename-input"
-      on:click={handleRenameClick}
-      on:blur={handleRenameBlur}
-      on:keydown={handleRenameKeydown}
-    />
-  {:else}
-    <span class="label">{file.name}</span>
-  {/if}
 </div>
 
 <style>
@@ -241,16 +243,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start; /* Changed from center to flex-start */
+    padding-top: 8px; /* Add padding at top for consistent spacing */
     cursor: default;
     color: var(--text-muted);
     text-align: center;
-    padding: 5px;
+    padding: 8px 5px 5px 5px;
     position: relative;
     outline: none;
     user-select: none;
     -webkit-user-select: none;
     transition: opacity 0.2s, transform 0.2s;
+    overflow: visible; /* Allow label to overflow */
   }
 
   .grid-item.being-dragged {
@@ -263,18 +267,47 @@
   }
 
   .grid-item.selected {
-    background-color: var(--selection);
-    border-color: var(--border-focus);
     color: var(--text-main);
+    z-index: 10; /* Ensure selected item appears above others */
+    background-color: transparent; /* No background on grid item itself */
+  }
+
+  /* Unified selection box container */
+  .item-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .item-content.selected {
+    background-color: var(--selection);
+    border: 2px solid var(--border-focus);
+    border-radius: 4px;
+    padding: 8px;
+    min-width: 90px;
+    margin: -10px; /* Negative margin to compensate for padding + border (8px padding + 2px border = 10px) */
+  }
+
+  .item-content.selected .icon {
+    margin-bottom: 4px;
+  }
+
+  .item-content.selected .label {
+    -webkit-line-clamp: unset;
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    width: 100%;
+    text-align: center;
   }
 
   .grid-item.focused {
-    border: 2px dotted var(--text-muted);
+    /* No dotted border - we'll rely on selection state */
   }
 
   .grid-item.selected.focused {
-    border: 2px solid var(--border-focus);
-    background-color: rgba(59, 130, 246, 0.4);
+    /* Don't add extra borders since icon and label have them */
+    background-color: transparent;
   }
 
   .grid-item.drag-over {
@@ -289,7 +322,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
+    min-width: 48px;
     height: 48px;
   }
 

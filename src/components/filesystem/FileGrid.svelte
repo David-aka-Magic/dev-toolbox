@@ -201,7 +201,7 @@
      // Drag & drop events
      function handleDragStart(detail: any) {
        const { event: dragEvent, file } = detail;
-       fileDragDrop.handleDragStart(dragEvent, file);
+       fileDragDrop.handleDragStart(dragEvent, file, $selectedFiles, files);
      }
    
      function handleDragEnd(detail: any) {
@@ -263,7 +263,7 @@
            index={i}
            isSelected={$selectedFiles.has(file.name)}
            isFocused={$focusedIndex === i}
-           isBeingDragged={$fileDragDrop.draggedFile === file.name}
+           isBeingDragged={$fileDragDrop.draggedFiles.includes(file.name)}
            isRenaming={renamingFile === file.name}
            renameValue={file.name}
            onclick={handleItemClick}
