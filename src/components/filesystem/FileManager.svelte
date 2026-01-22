@@ -46,6 +46,12 @@
   let draggedIsDir: boolean = false;
   let currentDropTarget: string | null = null;
 
+  // --- DRAG SELECTION STATE ---
+  let isDragSelecting = false;
+  let dragSelectStart: { x: number; y: number } | null = null;
+  let dragSelectEnd: { x: number; y: number } | null = null;
+  let dragSelectBox: DOMRect | null = null;
+
   // --- LOADING ---
   $: if ($activeTab && $activeTab.path) {
     loadFiles($activeTab.path);
@@ -246,6 +252,69 @@
         selectedFiles = selectedFiles;
     }
     showMenu = true;
+  }
+
+  // --- DRAG SELECTION HANDLERS ---
+  function handleMouseDown(e: MouseEvent) {
+    // Only start drag selection on background clicks (not on items)
+    if (e.target !== e.currentTarget) return;
+    
+    // Don't interfere with context menu
+    if (e.button === 2) return;
+    
+    isDragSelecting = true;
+    dragSelectStart = { x: e.clientX, y: e.clientY };
+    dragSelectEnd = { x: e.clientX, y: e.clientY };
+    
+    // Clear selection unless ctrl/cmd is held
+    if (!e.ctrlKey && !e.metaKey) {
+      selectedFiles.clear();
+      selectedFiles = selectedFiles;
+    }
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!isDragSelecting || !dragSelectStart) return;
+    
+    dragSelectEnd = { x: e.clientX, y: e.clientY };
+    
+    // Calculate selection box
+    const left = Math.min(dragSelectStart.x, dragSelectEnd.x);
+    const top = Math.min(dragSelectStart.y, dragSelectEnd.y);
+    const width = Math.abs(dragSelectEnd.x - dragSelectStart.x);
+    const height = Math.abs(dragSelectEnd.y - dragSelectStart.y);
+    
+    dragSelectBox = new DOMRect(left, top, width, height);
+    
+    // Check which items intersect with selection box
+    const tempSelection = new Set<string>();
+    files.forEach((file, i) => {
+      const element = document.getElementById(`file-btn-${i}`);
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        if (boxesIntersect(dragSelectBox!, rect)) {
+          tempSelection.add(file.name);
+        }
+      }
+    });
+    
+    selectedFiles = tempSelection;
+  }
+
+  function handleMouseUp(e: MouseEvent) {
+    isDragSelecting = false;
+    dragSelectStart = null;
+    dragSelectEnd = null;
+    dragSelectBox = null;
+  }
+
+  function boxesIntersect(box1: DOMRect, box2: DOMRect): boolean {
+    return !(
+      box1.right < box2.left ||
+      box1.left > box2.right ||
+      box1.bottom < box2.top ||
+      box1.top > box2.bottom
+    );
   }
 
   // --- DRAG AND DROP HANDLERS (CONTAINER-BASED) ---
@@ -482,6 +551,10 @@
   <div 
     class="grid-container" 
     bind:this={gridContainer}
+    on:mousedown={handleMouseDown}
+    on:mousemove={handleMouseMove}
+    on:mouseup={handleMouseUp}
+    on:mouseleave={handleMouseUp}
   >
     {#if isLoading && !files.length}
         <div class="loading">Loading...</div>
@@ -536,7 +609,12 @@
                     on:keydown={(e) => e.key === 'Enter' && submitRename()}
                 />
             {:else}
-                <span class="label">{file.name}</span>
+                <span 
+                    class="label" 
+                    class:label-selected={selectedFiles.has(file.name)}
+                >
+                    {file.name}
+                </span>
             {/if}
         </div>
         {/each}
@@ -567,6 +645,19 @@
             </div>
         {/if}
 
+    {/if}
+
+    <!-- Drag Selection Box -->
+    {#if isDragSelecting && dragSelectStart && dragSelectEnd}
+      <div 
+        class="selection-box"
+        style="
+          left: {Math.min(dragSelectStart.x, dragSelectEnd.x)}px;
+          top: {Math.min(dragSelectStart.y, dragSelectEnd.y)}px;
+          width: {Math.abs(dragSelectEnd.x - dragSelectStart.x)}px;
+          height: {Math.abs(dragSelectEnd.y - dragSelectStart.y)}px;
+        "
+      ></div>
     {/if}
   </div>
 
@@ -635,7 +726,7 @@
     display: flex; 
     flex-direction: column; 
     align-items: center; 
-    justify-content: center; 
+    justify-content: flex-start; /* Changed from center to flex-start */
     cursor: default; 
     color: var(--text-muted); 
     text-align: center; 
@@ -660,6 +751,9 @@
     background-color: var(--selection); 
     border-color: var(--border-focus); 
     color: var(--text-main); 
+    z-index: 100; /* Bring selected items to front so full name appears above other items */
+    min-height: 120px; /* Expand height to accommodate longer filenames */
+    height: auto; /* Allow height to grow dynamically */
   }
 
   .grid-item.focused { 
@@ -687,12 +781,14 @@
   .icon { 
     font-size: 32px; 
     margin-bottom: 6px; 
+    margin-top: 5px; /* Add consistent top margin */
     pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 60px;
     height: 60px;
+    flex-shrink: 0; /* Prevent icon from shrinking */
   }
 
   .thumbnail {
@@ -713,6 +809,7 @@
     50% { opacity: 0.5; }
   }
   
+  /* Default label - truncated with ellipsis */
   .label { 
     font-size: 12px; 
     word-break: break-word; 
@@ -723,6 +820,21 @@
     -webkit-line-clamp: 2; 
     -webkit-box-orient: vertical;
     pointer-events: none;
+  }
+
+  /* Selected label - shows full name expanding downward */
+  .label-selected {
+    overflow: visible;
+    text-overflow: clip;
+    display: block;
+    -webkit-line-clamp: unset;
+    -webkit-box-orient: unset;
+    white-space: normal;
+    word-wrap: break-word;
+    max-height: none;
+    position: relative; /* Changed from absolute to relative */
+    padding: 4px;
+    margin-top: 0; /* Remove extra spacing */
   }
 
   .rename-input {
@@ -747,5 +859,14 @@
     color: white;
     border: 1px solid rgba(255,255,255, 0.3);
     box-shadow: none;
+  }
+
+  /* Drag Selection Box */
+  .selection-box {
+    position: fixed;
+    border: 2px solid var(--border-focus);
+    background-color: rgba(59, 130, 246, 0.2);
+    pointer-events: none;
+    z-index: 10001;
   }
 </style>
