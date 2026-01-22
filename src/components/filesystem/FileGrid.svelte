@@ -5,8 +5,8 @@
         fileSelection,
         selectedFiles,
         focusedIndex,
-    } from ".//fileoperations/useFileSelection";
-    import { fileDragDrop } from ".//fileoperations/useFileDragDrop";
+    } from ".//hooks/useFileSelection";
+    import { fileDragDrop } from ".//hooks/useFileDragDrop";
 
     export let files: any[] = [];
      export let isLoading: boolean = false;

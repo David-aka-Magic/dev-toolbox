@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { thumbnailLoader } from '../filesystem/fileoperations/useThumbnailLoader';
-  import { isVideoFile } from '../filesystem/fileoperations/fileUtils';
+  import { thumbnailLoader } from '../filesystem/hooks/useThumbnailLoader';
+  import { isVideoFile } from '../filesystem/hooks/fileUtils';
 
   export let file: any;
   export let index: number;

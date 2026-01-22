@@ -6,12 +6,12 @@
   import { tick } from "svelte";
 
   import FileGrid from './FileGrid.svelte';
-  import ContextMenu from './ContextMenu.svelte';
+  import ContextMenu from '../ui/ContextMenu.svelte';
   
-  import { fileSelection, selectedFiles } from './fileoperations/useFileSelection';
-  import { fileDragDrop } from './fileoperations/useFileDragDrop';
-  import { thumbnailLoader } from './fileoperations/useThumbnailLoader';
-  import { joinPath } from './fileoperations/fileUtils';
+  import { fileSelection, selectedFiles } from './hooks/useFileSelection';
+  import { fileDragDrop } from './hooks/useFileDragDrop';
+  import { thumbnailLoader } from './hooks/useThumbnailLoader';
+  import { joinPath } from './hooks/fileUtils';
 
   let files: any[] = [];
   let isLoading = false;

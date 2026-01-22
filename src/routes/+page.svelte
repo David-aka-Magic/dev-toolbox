@@ -10,7 +10,7 @@
   import FileTree from '../components/filesystem/FileTree.svelte';
   import FileManager from '../components/filesystem/FileManager.svelte';
   import EditorView from '../components/editor/EditorView.svelte';
-  import ApiTester from '../components/ApiTester.svelte';
+  import ApiTester from '../components/apitester/ApiTester.svelte';
 </script>
 
 <div class="app-container">
