@@ -22,20 +22,19 @@
   let isLoading = false;
   let fileGridRef: any;
 
-  // Context Menu
+  // Prevent duplicate paste operations
+  let isPasting = false;
+
   let showMenu = false;
   let menuX = 0;
   let menuY = 0;
   let menuTargetFile: string | null = null;
 
-  // Rename & Creation
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
 
-  // Sorted files based on current sort configuration
   $: sortedFiles = sortFiles(files, $sortConfig);
 
-  // Load files when active tab path changes
   $: if ($activeTab && $activeTab.path) {
     loadFiles($activeTab.path);
   }
@@ -71,7 +70,6 @@
     }
   }
 
-  // Clipboard operations
   function copySelectedFiles() {
     const currentPath = $activeTab?.path;
     if (!currentPath || $selectedFiles.size === 0) return;
@@ -90,34 +88,78 @@
     clipboard.cut(filePaths, fileNames, currentPath);
   }
 
-  async function pasteFiles() {
+  async function pasteFiles(targetPath?: string) {
+    // Prevent duplicate paste operations
+    if (isPasting) return;
+    isPasting = true;
+
     const currentPath = $activeTab?.path;
-    if (!currentPath) return;
+    if (!currentPath) {
+      isPasting = false;
+      return;
+    }
     
     const clipboardState = clipboard.getState();
-    if (clipboardState.files.length === 0) return;
+    if (clipboardState.files.length === 0) {
+      isPasting = false;
+      return;
+    }
+
+    // Determine destination: if a folder is selected and no explicit target, paste into it
+    let destinationPath = targetPath || currentPath;
+    
+    if (!targetPath && $selectedFiles.size === 1) {
+      const selectedFileName = Array.from($selectedFiles)[0];
+      const selectedFile = files.find(f => f.name === selectedFileName);
+      if (selectedFile?.is_dir) {
+        destinationPath = selectedFile.path;
+      }
+    }
+
+    // Prevent pasting a folder into itself
+    for (const sourcePath of clipboardState.files) {
+      if (destinationPath === sourcePath || destinationPath.startsWith(sourcePath + '\\') || destinationPath.startsWith(sourcePath + '/')) {
+        alert("Cannot paste a folder into itself or its subdirectory");
+        isPasting = false;
+        return;
+      }
+    }
     
     try {
+      // Get current files in destination for duplicate checking
+      let destFiles: any[] = [];
+      try {
+        destFiles = await invoke("read_directory", { path: destinationPath });
+      } catch (e) {
+        // If we can't read the destination, proceed anyway
+      }
+
       for (let i = 0; i < clipboardState.files.length; i++) {
         const sourcePath = clipboardState.files[i];
         const fileName = clipboardState.fileNames[i];
         
-        if (clipboardState.sourcePath === currentPath && clipboardState.operation === 'copy') {
+        // Check if pasting in same location with copy operation
+        const isSameLocation = clipboardState.sourcePath === destinationPath;
+        
+        if (isSameLocation && clipboardState.operation === 'copy') {
+          // Generate unique name
           let newName = fileName;
           let counter = 1;
           const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
           const baseName = ext ? fileName.slice(0, -ext.length) : fileName;
           
-          while (files.some(f => f.name === newName)) {
+          // Check against destination files
+          const existingNames = new Set(destFiles.map(f => f.name));
+          while (existingNames.has(newName)) {
             newName = `${baseName} (${counter})${ext}`;
             counter++;
           }
           
-          await invoke('copy_item', { source: sourcePath, destination: currentPath, newName });
+          await invoke('copy_item', { source: sourcePath, destination: destinationPath, newName });
         } else if (clipboardState.operation === 'copy') {
-          await invoke('copy_item', { source: sourcePath, destination: currentPath });
+          await invoke('copy_item', { source: sourcePath, destination: destinationPath });
         } else if (clipboardState.operation === 'cut') {
-          await invoke('move_item', { source: sourcePath, destination: currentPath });
+          await invoke('move_item', { source: sourcePath, destination: destinationPath });
         }
       }
       
@@ -129,38 +171,41 @@
     } catch (err) {
       console.error("Paste error:", err);
       alert("Paste failed: " + err);
+    } finally {
+      isPasting = false;
     }
   }
 
-  // Build context menu options
   function getMenuOptions() {
     const clipboardState = clipboard.getState();
     const hasClipboard = clipboardState.files.length > 0;
     
     if (menuTargetFile) {
       const targetFile = files.find(f => f.name === menuTargetFile);
-      const baseOptions = targetFile?.is_dir
-        ? [
-            { label: 'Open', action: 'open' },
-            { label: 'Open in New Tab', action: 'open_new_tab' },
-            { label: 'SEPARATOR', action: '' },
-            { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
-            { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
-            { label: 'SEPARATOR', action: '' },
-            { label: 'Rename', action: 'rename', shortcut: 'F2' },
-            { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
-          ]
-        : [
-            { label: 'Open', action: 'open' },
-            { label: 'Open in Editor', action: 'open_in_editor' },
-            { label: 'SEPARATOR', action: '' },
-            { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
-            { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
-            { label: 'SEPARATOR', action: '' },
-            { label: 'Rename', action: 'rename', shortcut: 'F2' },
-            { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
-          ];
-      return baseOptions;
+      if (targetFile?.is_dir) {
+        return [
+          { label: 'Open', action: 'open' },
+          { label: 'Open in New Tab', action: 'open_new_tab' },
+          { label: 'SEPARATOR', action: '' },
+          { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
+          { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
+          { label: 'Paste Into', action: 'paste_into', disabled: !hasClipboard, shortcut: 'Ctrl+V' },
+          { label: 'SEPARATOR', action: '' },
+          { label: 'Rename', action: 'rename', shortcut: 'F2' },
+          { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
+        ];
+      } else {
+        return [
+          { label: 'Open', action: 'open' },
+          { label: 'Open in Editor', action: 'open_in_editor' },
+          { label: 'SEPARATOR', action: '' },
+          { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
+          { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
+          { label: 'SEPARATOR', action: '' },
+          { label: 'Rename', action: 'rename', shortcut: 'F2' },
+          { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
+        ];
+      }
     } else {
       return [
         { label: 'New Folder', action: 'new_folder' },
@@ -173,7 +218,6 @@
     }
   }
 
-  // Menu Actions
   async function handleMenuAction(action: string) {
     showMenu = false;
     const currentPath = $activeTab?.path;
@@ -202,6 +246,11 @@
     if (menuTargetFile) {
       const fullPath = joinPath(currentPath, menuTargetFile);
       const targetFile = files.find(f => f.name === menuTargetFile);
+
+      if (action === 'paste_into' && targetFile?.is_dir) {
+        pasteFiles(targetFile.path);
+        return;
+      }
 
       if (action === 'open' && targetFile?.is_dir) {
         fileTabs.updateActivePath(targetFile.path);
@@ -247,7 +296,6 @@
     }
   }
 
-  // Open file - routes to appropriate viewer based on file type
   function openFile(file: any) {
     if (isImageFile(file.name)) {
       openMediaInNewWindow(file.path, file.name, 'image');
@@ -258,7 +306,6 @@
     }
   }
 
-  // Open file in editor
   async function openInEditor(file: any) {
     try {
       const content = await invoke<string>('read_file', { path: file.path });
@@ -279,7 +326,6 @@
     }
   }
 
-  // Grid event handlers
   function handleBackgroundClick() {
     if (creationType) {
       creationType = null;
@@ -330,7 +376,6 @@
     showMenu = true;
   }
 
-  // Item drop
   async function handleItemDrop(detail: any) {
     const { event: dropEvent, file: targetFolder } = detail;
     const currentPath = $activeTab?.path;
@@ -341,7 +386,6 @@
     });
   }
 
-  // Rename
   async function handleRenameSubmit(detail: any) {
     if (!renamingFile) return;
     
@@ -361,7 +405,6 @@
     renamingFile = null;
   }
 
-  // Creation
   async function handleCreationConfirm(detail: any) {
     if (!creationType) return;
     
@@ -393,7 +436,6 @@
     creationType = null;
   }
 
-  // Keyboard navigation and shortcuts
   function handleKeyDown(event: KeyboardEvent) {
     if (renamingFile || creationType) {
       if (event.key === 'Escape') {

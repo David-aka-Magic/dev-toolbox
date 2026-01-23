@@ -9,7 +9,6 @@
   export let renamingFile: string | null = null;
   export let creationType: 'folder' | 'file' | null = null;
 
-  // Callback props
   export let onbackgroundclick: (() => void) | undefined = undefined;
   export let onitemdblclick: ((detail: any) => void) | undefined = undefined;
   export let onitemcontextmenu: ((detail: any) => void) | undefined = undefined;
@@ -20,15 +19,21 @@
 
   let gridContainer: HTMLDivElement;
 
-  // Drag selection state
   let isDragSelecting = false;
   let dragStarted = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let dragCurrentX = 0;
   let dragCurrentY = 0;
+  // Track if we just finished a drag selection to prevent clearSelection on click
+  let justFinishedDragSelection = false;
 
   function handleBackgroundClick(event: MouseEvent) {
+    // If we just finished drag selection, don't clear - just reset the flag
+    if (justFinishedDragSelection) {
+      justFinishedDragSelection = false;
+      return;
+    }
     if (event.target === event.currentTarget) {
       onbackgroundclick?.();
     }
@@ -40,6 +45,7 @@
 
     isDragSelecting = true;
     dragStarted = false;
+    justFinishedDragSelection = false;
     
     const rect = gridContainer.getBoundingClientRect();
     dragStartX = event.clientX - rect.left + gridContainer.scrollLeft;
@@ -73,6 +79,10 @@
   }
 
   function handleMouseUp() {
+    // If we actually dragged to select files, set the flag to prevent clearSelection
+    if (dragStarted && $selectedFiles.size > 0) {
+      justFinishedDragSelection = true;
+    }
     isDragSelecting = false;
     dragStarted = false;
     window.removeEventListener('mousemove', handleMouseMove);
@@ -107,8 +117,9 @@
     });
   }
 
-  // File item events
   function handleItemClick(detail: any) {
+    // Reset the flag when clicking on items
+    justFinishedDragSelection = false;
     const { event: mouseEvent, index, fileName } = detail;
     fileSelection.handleClick(mouseEvent, index, fileName, files);
   }
@@ -135,7 +146,6 @@
     onitemcontextmenu?.(detail);
   }
 
-  // Drag & drop events
   function handleDragStart(detail: any) {
     const { event: dragEvent, file } = detail;
     fileDragDrop.handleDragStart(dragEvent, file, $selectedFiles, files);
@@ -164,12 +174,10 @@
     onitemdrop?.(detail);
   }
 
-  // Rename events
   function handleRenameSubmit(detail: any) {
     onrenamesubmit?.(detail);
   }
 
-  // Creation events
   function handleCreationConfirm(detail: any) {
     oncreationconfirm?.(detail);
   }
@@ -178,7 +186,6 @@
     oncreationcancel?.();
   }
 
-  // Expose grid container for keyboard navigation
   export function getContainerWidth(): number {
     return gridContainer?.clientWidth || 800;
   }
