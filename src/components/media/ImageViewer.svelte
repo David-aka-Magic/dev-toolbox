@@ -8,6 +8,7 @@
 
   // --- CANVAS STATE ---
   let container: HTMLDivElement;
+  let imgElement: HTMLImageElement;
   let scale = 1;
   let panning = false;
   let pointX = 0;
@@ -66,24 +67,53 @@
     scale = newScale;
   }
 
-  // Reset View to Center
+  // Reset View to Center and Fit
   function reset() {
-    scale = 1;
-    pointX = 0;
-    pointY = 0;
-    
-    // Simple centering math
-    if (container) {
-       const rect = container.getBoundingClientRect();
-       // This centers 0,0. You might want to offset based on image size later.
-       pointX = (rect.width / 2) - (meta.width / 2); 
-       pointY = (rect.height / 2) - (meta.height / 2);
+    if (container && imgElement) {
+      const containerRect = container.getBoundingClientRect();
+      const imgWidth = imgElement.naturalWidth;
+      const imgHeight = imgElement.naturalHeight;
+      
+      // Calculate scale to fit image in viewport
+      const scaleX = containerRect.width / imgWidth;
+      const scaleY = containerRect.height / imgHeight;
+      
+      // Use the smaller scale to ensure entire image fits
+      // Add some padding (0.9) so it doesn't touch the edges
+      scale = Math.min(scaleX, scaleY, 1) * 0.9;
+      
+      // Center the image at the calculated scale
+      const scaledWidth = imgWidth * scale;
+      const scaledHeight = imgHeight * scale;
+      
+      pointX = (containerRect.width - scaledWidth) / 2;
+      pointY = (containerRect.height - scaledHeight) / 2;
+    } else {
+      scale = 1;
+      pointX = 0;
+      pointY = 0;
     }
+  }
+
+  // Handle image load - center it
+  function handleImageLoad() {
+    if (imgElement) {
+      // Update meta with actual dimensions
+      meta = {
+        ...meta,
+        width: imgElement.naturalWidth,
+        height: imgElement.naturalHeight
+      };
+    }
+    // Center the image after it loads
+    reset();
   }
   
   onMount(() => {
-      // Auto-center on load
-      reset();
+    // If image is already cached, it might load before onMount
+    if (imgElement && imgElement.complete) {
+      handleImageLoad();
+    }
   });
 </script>
 
@@ -100,7 +130,14 @@
     class="canvas-layer"
     style:transform="translate3d({pointX}px, {pointY}px, 0) scale({scale})"
   >
-    <img {src} alt={filename} class="media-content" draggable="false" />
+    <img 
+      bind:this={imgElement}
+      {src} 
+      alt={filename} 
+      class="media-content" 
+      draggable="false"
+      on:load={handleImageLoad}
+    />
   </div>
 
   <div class="hud-overlay top">
@@ -203,6 +240,7 @@
   .bottom { bottom: 20px; flex-direction: column; gap: 8px; padding: 10px 20px; }
 
   .meta-tag { color: #aaa; font-weight: 500; }
+  .meta-group { display: flex; gap: 15px; }
   .filename { color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
   .badge { background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; }
 
@@ -223,5 +261,11 @@
   .scrub-slider {
     flex: 1; height: 4px; border-radius: 2px;
     accent-color: #3b82f6; cursor: pointer;
+  }
+
+  .frame-counter {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: #888;
   }
 </style>

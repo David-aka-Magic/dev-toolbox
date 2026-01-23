@@ -3,7 +3,6 @@
   import { activeTab, fileTabs } from "$lib/stores/fileTabStore";
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
   import { currentView } from '$lib/stores/viewStore';
-  import { clipboard } from '$lib/stores/clipboardStore';
   import { viewMode, sortConfig, sortFiles } from '$lib/stores/viewModeStore';
   import { tick } from "svelte";
 
@@ -15,12 +14,13 @@
   import { fileSelection, selectedFiles } from './hooks/useFileSelection';
   import { fileDragDrop } from './hooks/useFileDragDrop';
   import { thumbnailLoader } from './hooks/useThumbnailLoader';
-  import { joinPath } from './hooks/fileUtils';
+  import { joinPath, isImageFile, isVideoFile } from './hooks/fileUtils';
+  import { clipboard } from '$lib/stores/clipboardStore';
+  import { openMediaInNewWindow } from '$lib/utils/openMediaWindow';
 
   let files: any[] = [];
-  let sortedFiles: any[] = [];
   let isLoading = false;
-  let fileGridRef: FileGrid | FileListView | FileDetailsView;
+  let fileGridRef: any;
 
   // Context Menu
   let showMenu = false;
@@ -32,7 +32,7 @@
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
 
-  // Sort files whenever files or sort config changes
+  // Sorted files based on current sort configuration
   $: sortedFiles = sortFiles(files, $sortConfig);
 
   // Load files when active tab path changes
@@ -97,16 +97,12 @@
     const clipboardState = clipboard.getState();
     if (clipboardState.files.length === 0) return;
     
-    console.log(`📋 Pasting ${clipboardState.files.length} file(s) - operation: ${clipboardState.operation}`);
-    
     try {
       for (let i = 0; i < clipboardState.files.length; i++) {
         const sourcePath = clipboardState.files[i];
         const fileName = clipboardState.fileNames[i];
         
-        // Check if pasting into same directory
         if (clipboardState.sourcePath === currentPath && clipboardState.operation === 'copy') {
-          // Generate a unique name for copy in same folder
           let newName = fileName;
           let counter = 1;
           const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
@@ -125,7 +121,6 @@
         }
       }
       
-      // Clear clipboard after cut operation
       if (clipboardState.operation === 'cut') {
         clipboard.clear();
       }
@@ -167,7 +162,6 @@
           ];
       return baseOptions;
     } else {
-      // Background context menu
       return [
         { label: 'New Folder', action: 'new_folder' },
         { label: 'New File', action: 'new_file' },
@@ -216,7 +210,7 @@
         fileTabs.addTab(targetFile.path);
       }
       if (action === 'open' && !targetFile?.is_dir) {
-        openInEditor(targetFile);
+        openFile(targetFile);
       }
       if (action === 'open_in_editor' && targetFile) {
         openInEditor(targetFile);
@@ -250,6 +244,17 @@
     } else {
       if (action === 'new_folder') creationType = 'folder';
       if (action === 'new_file') creationType = 'file';
+    }
+  }
+
+  // Open file - routes to appropriate viewer based on file type
+  function openFile(file: any) {
+    if (isImageFile(file.name)) {
+      openMediaInNewWindow(file.path, file.name, 'image');
+    } else if (isVideoFile(file.name)) {
+      openMediaInNewWindow(file.path, file.name, 'video');
+    } else {
+      openInEditor(file);
     }
   }
 
@@ -290,7 +295,7 @@
     if (file.is_dir) {
       fileTabs.updateActivePath(file.path);
     } else {
-      openInEditor(file);
+      openFile(file);
     }
   }
 
@@ -398,7 +403,6 @@
       return;
     }
 
-    // Clipboard shortcuts
     if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
       event.preventDefault();
       copySelectedFiles();
@@ -417,14 +421,12 @@
       return;
     }
 
-    // Rename shortcut
     if (event.key === 'F2' && $selectedFiles.size === 1) {
       event.preventDefault();
       renamingFile = Array.from($selectedFiles)[0];
       return;
     }
 
-    // Refresh shortcut
     if (event.key === 'F5') {
       event.preventDefault();
       const currentPath = $activeTab?.path;
@@ -434,7 +436,6 @@
 
     if (sortedFiles.length === 0) return;
 
-    // Delete key - delete selected files
     if (event.key === 'Delete') {
       event.preventDefault();
       const currentPath = $activeTab?.path;
