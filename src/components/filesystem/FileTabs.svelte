@@ -1,16 +1,17 @@
 <script lang="ts">
   import { fileTabs } from '$lib/stores/fileTabStore';
+  import { fileDragDrop } from './hooks/useFileDragDrop';
   import { tick } from 'svelte';
 
   let editingId: string | null = null;
   let editInput: HTMLInputElement;
+  let dragOverTabId: string | null = null;
 
-  // NEW: Scroll tabs horizontally with mouse wheel
+  // Scroll tabs horizontally with mouse wheel
   function handleWheel(e: WheelEvent) {
     const container = e.currentTarget as HTMLElement;
     if (e.deltaY !== 0) {
       container.scrollLeft += e.deltaY;
-      // Prevent the page/sidebar from scrolling while hovering tabs
       e.preventDefault(); 
     }
   }
@@ -49,6 +50,79 @@
         fileTabs.closeTab(id);
      }
   }
+
+  // Drag & drop handlers for tabs
+  function handleTabDragEnter(event: DragEvent, tabId: string) {
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    dragOverTabId = tabId;
+  }
+
+  function handleTabDragOver(event: DragEvent, tabId: string) {
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  }
+
+  function handleTabDragLeave(event: DragEvent) {
+    dragOverTabId = null;
+  }
+
+  async function handleTabDrop(event: DragEvent, tabId: string, tabPath: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragOverTabId = null;
+
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+
+    // Get the active tab's path as the source
+    const activeTab = $fileTabs.tabs.find(t => t.id === $fileTabs.activeId);
+    const currentPath = activeTab?.path;
+    
+    if (!currentPath) return;
+
+    // Don't drop into the same folder
+    if (tabPath === currentPath) {
+      console.log("⚠️ Cannot drop into the same folder");
+      return;
+    }
+
+    console.log(`📦 Moving ${state.draggedFiles.length} file(s) to tab:`, tabPath);
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      
+      for (const fileName of state.draggedFiles) {
+        const sourcePath = state.draggedFilePaths.get(fileName) || `${currentPath}\\${fileName}`;
+        
+        // Safety check: don't move a folder into its own subdirectory
+        if (tabPath.startsWith(sourcePath + '\\') || tabPath.startsWith(sourcePath + '/')) {
+          alert(`Cannot move "${fileName}" into its own subdirectory`);
+          continue;
+        }
+        
+        console.log(`📦 Moving: ${sourcePath} -> ${tabPath}`);
+        await invoke('move_item', { source: sourcePath, destination: tabPath });
+      }
+      
+      // Refresh the current directory by triggering a re-load
+      // We do this by "updating" to the same path which will re-trigger the file load
+      fileTabs.updateActivePath(currentPath);
+    } catch (err) {
+      console.error("❌ Move error:", err);
+      alert("Move failed: " + err);
+    }
+  }
 </script>
 
 <div class="tabs-container" on:wheel={handleWheel} data-tauri-drag-region>
@@ -56,9 +130,14 @@
     <div 
       class="tab" 
       class:active={$fileTabs.activeId === tab.id}
+      class:drag-over={dragOverTabId === tab.id}
       on:click={() => fileTabs.setActive(tab.id)}
       on:dblclick={() => startEditing(tab.id)}
       on:keydown={(e) => handleTabKeyDown(e, tab.id)}
+      on:dragenter={(e) => handleTabDragEnter(e, tab.id)}
+      on:dragover={(e) => handleTabDragOver(e, tab.id)}
+      on:dragleave={handleTabDragLeave}
+      on:drop={(e) => handleTabDrop(e, tab.id, tab.path)}
       role="button"
       tabindex="0"
     >
@@ -99,14 +178,11 @@
     height: 100%;
     padding-left: 0;
     -webkit-app-region: no-drag;
-    
-    /* SCROLL LOGIC */
     overflow-x: auto;
     overflow-y: hidden;
-    scrollbar-width: none; /* Firefox */
+    scrollbar-width: none;
   }
   
-  /* Hide scrollbar for WebKit */
   .tabs-container::-webkit-scrollbar { 
     display: none;
   }
@@ -128,20 +204,25 @@
     border-top: 2px solid transparent;
     border-right: 1px solid var(--border);
     transition: background 0.1s;
-    
-    /* CRITICAL FIX: Prevent tabs from shrinking, forcing the scroll */
     flex-shrink: 0; 
   }
 
   .tab:hover:not(.active) {
     background: var(--hover-bg);
-    color:var(--text-main);
+    color: var(--text-main);
   }
 
   .tab.active {
     background: var(--bg-main);
     color: var(--tab-active-fg);
     border-top: 2px solid var(--tab-active-border);
+  }
+
+  .tab.drag-over {
+    background: rgba(59, 130, 246, 0.3);
+    border-top: 2px solid #3b82f6;
+    outline: 2px dashed #3b82f6;
+    outline-offset: -2px;
   }
 
   .tab-name {
@@ -194,7 +275,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Ensure the + button also doesn't shrink */
     flex-shrink: 0; 
   }
   .new-tab-btn:hover { color: white; background: rgba(255,255,255,0.05); }

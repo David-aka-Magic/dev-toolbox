@@ -15,17 +15,21 @@ export interface DragState {
   currentDropTarget: string | null;
 }
 
+// Create the internal store
+const dragStore = writable<DragState>({
+  draggedFile: null,
+  draggedFilePath: null,
+  draggedIsDir: false,
+  draggedFiles: [],
+  draggedFilePaths: new Map(),
+  currentDropTarget: null
+});
+
 function createFileDragDrop() {
-  const { subscribe, set, update } = writable<DragState>({
-    draggedFile: null,
-    draggedFilePath: null,
-    draggedIsDir: false,
-    draggedFiles: [],
-    draggedFilePaths: new Map(),
-    currentDropTarget: null
-  });
+  const { subscribe, set, update } = dragStore;
 
   return {
+    // Expose subscribe for Svelte's $ syntax
     subscribe,
 
     /**
@@ -102,7 +106,7 @@ function createFileDragDrop() {
      * Handle drag enter on a folder
      */
     handleItemDragEnter: (event: DragEvent, file: any) => {
-      const state = get({ subscribe });
+      const state = get(dragStore);
       
       console.log("👋 ITEM ENTER:", file.name);
       
@@ -118,7 +122,7 @@ function createFileDragDrop() {
      * Handle drag over a folder
      */
     handleItemDragOver: (event: DragEvent, file: any) => {
-      const state = get({ subscribe });
+      const state = get(dragStore);
       
       if (!state.draggedFile || !file.is_dir || state.draggedFiles.includes(file.name)) {
         return;
@@ -154,7 +158,7 @@ function createFileDragDrop() {
       const element = event.currentTarget as HTMLElement;
       element.classList.remove('drag-over');
 
-      const state = get({ subscribe });
+      const state = get(dragStore);
 
       if (!targetFolder.is_dir || !state.draggedFile) return;
 
@@ -195,7 +199,7 @@ function createFileDragDrop() {
      * Check if currently dragging
      */
     isDragging: (): boolean => {
-      const state = get({ subscribe });
+      const state = get(dragStore);
       return state.draggedFile !== null;
     },
 
@@ -203,7 +207,7 @@ function createFileDragDrop() {
      * Get dragged file name
      */
     getDraggedFile: (): string | null => {
-      const state = get({ subscribe });
+      const state = get(dragStore);
       return state.draggedFile;
     }
   };

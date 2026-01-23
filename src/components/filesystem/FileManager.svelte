@@ -3,9 +3,13 @@
   import { activeTab, fileTabs } from "$lib/stores/fileTabStore";
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
   import { currentView } from '$lib/stores/viewStore';
+  import { clipboard } from '$lib/stores/clipboardStore';
+  import { viewMode, sortConfig, sortFiles } from '$lib/stores/viewModeStore';
   import { tick } from "svelte";
 
   import FileGrid from './FileGrid.svelte';
+  import FileListView from './FileListView.svelte';
+  import FileDetailsView from './FileDetailsView.svelte';
   import ContextMenu from '../ui/ContextMenu.svelte';
   
   import { fileSelection, selectedFiles } from './hooks/useFileSelection';
@@ -14,8 +18,9 @@
   import { joinPath } from './hooks/fileUtils';
 
   let files: any[] = [];
+  let sortedFiles: any[] = [];
   let isLoading = false;
-  let fileGridRef: FileGrid;
+  let fileGridRef: FileGrid | FileListView | FileDetailsView;
 
   // Context Menu
   let showMenu = false;
@@ -26,6 +31,9 @@
   // Rename & Creation
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
+
+  // Sort files whenever files or sort config changes
+  $: sortedFiles = sortFiles(files, $sortConfig);
 
   // Load files when active tab path changes
   $: if ($activeTab && $activeTab.path) {
@@ -48,7 +56,7 @@
       thumbnailLoader.queueThumbnails(files);
 
       if (targetSelect) {
-        const index = files.findIndex(f => f.name === targetSelect);
+        const index = sortedFiles.findIndex(f => f.name === targetSelect);
         if (index !== -1) {
           fileSelection.selectFile(targetSelect, index);
           await tick();
@@ -63,6 +71,114 @@
     }
   }
 
+  // Clipboard operations
+  function copySelectedFiles() {
+    const currentPath = $activeTab?.path;
+    if (!currentPath || $selectedFiles.size === 0) return;
+    
+    const fileNames = Array.from($selectedFiles);
+    const filePaths = fileNames.map(name => joinPath(currentPath, name));
+    clipboard.copy(filePaths, fileNames, currentPath);
+  }
+
+  function cutSelectedFiles() {
+    const currentPath = $activeTab?.path;
+    if (!currentPath || $selectedFiles.size === 0) return;
+    
+    const fileNames = Array.from($selectedFiles);
+    const filePaths = fileNames.map(name => joinPath(currentPath, name));
+    clipboard.cut(filePaths, fileNames, currentPath);
+  }
+
+  async function pasteFiles() {
+    const currentPath = $activeTab?.path;
+    if (!currentPath) return;
+    
+    const clipboardState = clipboard.getState();
+    if (clipboardState.files.length === 0) return;
+    
+    console.log(`📋 Pasting ${clipboardState.files.length} file(s) - operation: ${clipboardState.operation}`);
+    
+    try {
+      for (let i = 0; i < clipboardState.files.length; i++) {
+        const sourcePath = clipboardState.files[i];
+        const fileName = clipboardState.fileNames[i];
+        
+        // Check if pasting into same directory
+        if (clipboardState.sourcePath === currentPath && clipboardState.operation === 'copy') {
+          // Generate a unique name for copy in same folder
+          let newName = fileName;
+          let counter = 1;
+          const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
+          const baseName = ext ? fileName.slice(0, -ext.length) : fileName;
+          
+          while (files.some(f => f.name === newName)) {
+            newName = `${baseName} (${counter})${ext}`;
+            counter++;
+          }
+          
+          await invoke('copy_item', { source: sourcePath, destination: currentPath, newName });
+        } else if (clipboardState.operation === 'copy') {
+          await invoke('copy_item', { source: sourcePath, destination: currentPath });
+        } else if (clipboardState.operation === 'cut') {
+          await invoke('move_item', { source: sourcePath, destination: currentPath });
+        }
+      }
+      
+      // Clear clipboard after cut operation
+      if (clipboardState.operation === 'cut') {
+        clipboard.clear();
+      }
+      
+      loadFiles(currentPath);
+    } catch (err) {
+      console.error("Paste error:", err);
+      alert("Paste failed: " + err);
+    }
+  }
+
+  // Build context menu options
+  function getMenuOptions() {
+    const clipboardState = clipboard.getState();
+    const hasClipboard = clipboardState.files.length > 0;
+    
+    if (menuTargetFile) {
+      const targetFile = files.find(f => f.name === menuTargetFile);
+      const baseOptions = targetFile?.is_dir
+        ? [
+            { label: 'Open', action: 'open' },
+            { label: 'Open in New Tab', action: 'open_new_tab' },
+            { label: 'SEPARATOR', action: '' },
+            { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
+            { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
+            { label: 'SEPARATOR', action: '' },
+            { label: 'Rename', action: 'rename', shortcut: 'F2' },
+            { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
+          ]
+        : [
+            { label: 'Open', action: 'open' },
+            { label: 'Open in Editor', action: 'open_in_editor' },
+            { label: 'SEPARATOR', action: '' },
+            { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
+            { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
+            { label: 'SEPARATOR', action: '' },
+            { label: 'Rename', action: 'rename', shortcut: 'F2' },
+            { label: 'Delete', action: 'delete', danger: true, shortcut: 'Del' }
+          ];
+      return baseOptions;
+    } else {
+      // Background context menu
+      return [
+        { label: 'New Folder', action: 'new_folder' },
+        { label: 'New File', action: 'new_file' },
+        { label: 'SEPARATOR', action: '' },
+        { label: 'Paste', action: 'paste', disabled: !hasClipboard, shortcut: 'Ctrl+V' },
+        { label: 'SEPARATOR', action: '' },
+        { label: 'Refresh', action: 'refresh', shortcut: 'F5' }
+      ];
+    }
+  }
+
   // Menu Actions
   async function handleMenuAction(action: string) {
     showMenu = false;
@@ -74,10 +190,34 @@
       return;
     }
 
+    if (action === 'paste') {
+      pasteFiles();
+      return;
+    }
+
+    if (action === 'copy') {
+      copySelectedFiles();
+      return;
+    }
+
+    if (action === 'cut') {
+      cutSelectedFiles();
+      return;
+    }
+
     if (menuTargetFile) {
       const fullPath = joinPath(currentPath, menuTargetFile);
       const targetFile = files.find(f => f.name === menuTargetFile);
 
+      if (action === 'open' && targetFile?.is_dir) {
+        fileTabs.updateActivePath(targetFile.path);
+      }
+      if (action === 'open_new_tab' && targetFile?.is_dir) {
+        fileTabs.addTab(targetFile.path);
+      }
+      if (action === 'open' && !targetFile?.is_dir) {
+        openInEditor(targetFile);
+      }
       if (action === 'open_in_editor' && targetFile) {
         openInEditor(targetFile);
       }
@@ -85,7 +225,6 @@
         renamingFile = menuTargetFile;
       }
       if (action === 'delete') {
-        // Delete all selected files, or just the menu target if nothing selected
         const filesToDelete = $selectedFiles.size > 0 
           ? Array.from($selectedFiles) 
           : (menuTargetFile ? [menuTargetFile] : []);
@@ -99,8 +238,8 @@
         if (confirm(confirmMessage)) {
           try {
             for (const fileName of filesToDelete) {
-              const fullPath = joinPath(currentPath, fileName);
-              await invoke('delete_item', { path: fullPath });
+              const deletePath = joinPath(currentPath, fileName);
+              await invoke('delete_item', { path: deletePath });
             }
             loadFiles(currentPath);
           } catch (err) {
@@ -166,7 +305,7 @@
 
     if (fileName && !$selectedFiles.has(fileName)) {
       fileSelection.clearSelection();
-      const index = files.findIndex(f => f.name === fileName);
+      const index = sortedFiles.findIndex(f => f.name === fileName);
       if (index !== -1) {
         fileSelection.selectFile(fileName, index);
       }
@@ -249,7 +388,7 @@
     creationType = null;
   }
 
-  // Keyboard navigation
+  // Keyboard navigation and shortcuts
   function handleKeyDown(event: KeyboardEvent) {
     if (renamingFile || creationType) {
       if (event.key === 'Escape') {
@@ -259,7 +398,41 @@
       return;
     }
 
-    if (files.length === 0) return;
+    // Clipboard shortcuts
+    if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      event.preventDefault();
+      copySelectedFiles();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+      event.preventDefault();
+      cutSelectedFiles();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      event.preventDefault();
+      pasteFiles();
+      return;
+    }
+
+    // Rename shortcut
+    if (event.key === 'F2' && $selectedFiles.size === 1) {
+      event.preventDefault();
+      renamingFile = Array.from($selectedFiles)[0];
+      return;
+    }
+
+    // Refresh shortcut
+    if (event.key === 'F5') {
+      event.preventDefault();
+      const currentPath = $activeTab?.path;
+      if (currentPath) loadFiles(currentPath);
+      return;
+    }
+
+    if (sortedFiles.length === 0) return;
 
     // Delete key - delete selected files
     if (event.key === 'Delete') {
@@ -295,12 +468,12 @@
 
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
       const containerWidth = fileGridRef?.getContainerWidth() || 800;
-      fileSelection.handleKeyDown(event, files, containerWidth);
+      fileSelection.handleKeyDown(event, sortedFiles, containerWidth);
     }
 
     if (event.key === 'a' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      fileSelection.selectAll(files);
+      fileSelection.selectAll(sortedFiles);
     }
   }
 </script>
@@ -315,42 +488,58 @@
   on:contextmenu={handleContextMenu}
   role="presentation"
 >
-  <FileGrid
-    bind:this={fileGridRef}
-    {files}
-    {isLoading}
-    {renamingFile}
-    {creationType}
-    onbackgroundclick={handleBackgroundClick}
-    onitemdblclick={handleItemDblClick}
-    onitemcontextmenu={handleItemContextMenu}
-    onitemdrop={handleItemDrop}
-    onrenamesubmit={handleRenameSubmit}
-    oncreationconfirm={handleCreationConfirm}
-    oncreationcancel={handleCreationCancel}
-  />
+  {#if $viewMode === 'grid'}
+    <FileGrid
+      bind:this={fileGridRef}
+      files={sortedFiles}
+      {isLoading}
+      {renamingFile}
+      {creationType}
+      onbackgroundclick={handleBackgroundClick}
+      onitemdblclick={handleItemDblClick}
+      onitemcontextmenu={handleItemContextMenu}
+      onitemdrop={handleItemDrop}
+      onrenamesubmit={handleRenameSubmit}
+      oncreationconfirm={handleCreationConfirm}
+      oncreationcancel={handleCreationCancel}
+    />
+  {:else if $viewMode === 'list'}
+    <FileListView
+      bind:this={fileGridRef}
+      files={sortedFiles}
+      {isLoading}
+      {renamingFile}
+      {creationType}
+      onbackgroundclick={handleBackgroundClick}
+      onitemdblclick={handleItemDblClick}
+      onitemcontextmenu={handleItemContextMenu}
+      onitemdrop={handleItemDrop}
+      onrenamesubmit={handleRenameSubmit}
+      oncreationconfirm={handleCreationConfirm}
+      oncreationcancel={handleCreationCancel}
+    />
+  {:else if $viewMode === 'details'}
+    <FileDetailsView
+      bind:this={fileGridRef}
+      files={sortedFiles}
+      {isLoading}
+      {renamingFile}
+      {creationType}
+      onbackgroundclick={handleBackgroundClick}
+      onitemdblclick={handleItemDblClick}
+      onitemcontextmenu={handleItemContextMenu}
+      onitemdrop={handleItemDrop}
+      onrenamesubmit={handleRenameSubmit}
+      oncreationconfirm={handleCreationConfirm}
+      oncreationcancel={handleCreationCancel}
+    />
+  {/if}
 
   {#if showMenu}
     <ContextMenu
       x={menuX}
       y={menuY}
-      options={menuTargetFile
-        ? (files.find(f => f.name === menuTargetFile)?.is_dir
-            ? [
-                { label: 'Rename', action: 'rename' },
-                { label: 'Delete', action: 'delete', danger: true }
-              ]
-            : [
-                { label: 'Open in Editor', action: 'open_in_editor' },
-                { label: 'Rename', action: 'rename' },
-                { label: 'Delete', action: 'delete', danger: true }
-              ])
-        : [
-            { label: 'New Folder', action: 'new_folder' },
-            { label: 'New File', action: 'new_file' },
-            { label: 'SEPARATOR', action: '' },
-            { label: 'Refresh', action: 'refresh' }
-          ]}
+      options={getMenuOptions()}
       onclose={() => (showMenu = false)}
       onclick={handleMenuAction}
     />
@@ -366,6 +555,6 @@
     background-color: var(--bg-main);
     color: var(--text-main);
     position: relative;
-    z-index: 500;
+    z-index: 10000;
   }
 </style>

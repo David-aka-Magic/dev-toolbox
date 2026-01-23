@@ -1,10 +1,13 @@
 <script lang="ts">
   import { activeTab, fileTabs } from "$lib/stores/fileTabStore";
+  import { fileDragDrop } from './hooks/useFileDragDrop';
   import { tick } from "svelte";
+  import ViewModeSelector from './ViewModeSelector.svelte';
 
   let isInputMode = false;
   let inputElement: HTMLInputElement;
   let rawPath = "";
+  let dragOverCrumb: number | null = null;
 
   $: if ($activeTab) { rawPath = $activeTab.path; }
   $: parts = rawPath ? rawPath.split(/[\\/]/).filter(p => p !== "") : [];
@@ -13,6 +16,12 @@
     let newPath = parts.slice(0, index + 1).join("\\");
     if (index === 0 && newPath.endsWith(":")) newPath += "\\";
     fileTabs.updateActivePath(newPath);
+  }
+
+  function getPathUpTo(index: number): string {
+    let newPath = parts.slice(0, index + 1).join("\\");
+    if (index === 0 && newPath.endsWith(":")) newPath += "\\";
+    return newPath;
   }
 
   async function enableInput() {
@@ -27,6 +36,77 @@
     if (e.key === "Escape") { rawPath = $activeTab?.path || ""; isInputMode = false; }
   }
   function handleBlur() { setTimeout(() => { isInputMode = false; }, 150); }
+
+  // Breadcrumb drag & drop handlers
+  function handleCrumbDragEnter(event: DragEvent, index: number) {
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    dragOverCrumb = index;
+  }
+
+  function handleCrumbDragOver(event: DragEvent, index: number) {
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  }
+
+  function handleCrumbDragLeave(event: DragEvent) {
+    dragOverCrumb = null;
+  }
+
+  async function handleCrumbDrop(event: DragEvent, index: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragOverCrumb = null;
+
+    const state = $fileDragDrop;
+    if (!state.draggedFile) return;
+
+    const destPath = getPathUpTo(index);
+    const currentPath = $activeTab?.path;
+    
+    if (!currentPath) return;
+    
+    // Don't drop into the same folder
+    if (destPath === currentPath) {
+      console.log("⚠️ Cannot drop into the same folder");
+      return;
+    }
+
+    console.log(`📦 Moving ${state.draggedFiles.length} file(s) to breadcrumb:`, destPath);
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      
+      for (const fileName of state.draggedFiles) {
+        const sourcePath = state.draggedFilePaths.get(fileName) || `${currentPath}\\${fileName}`;
+        
+        // Safety check: don't move a folder into its own subdirectory
+        if (destPath.startsWith(sourcePath + '\\') || destPath.startsWith(sourcePath + '/')) {
+          alert(`Cannot move "${fileName}" into its own subdirectory`);
+          continue;
+        }
+        
+        console.log(`📦 Moving: ${sourcePath} -> ${destPath}`);
+        await invoke('move_item', { source: sourcePath, destination: destPath });
+      }
+      
+      // Refresh the current directory
+      fileTabs.updateActivePath(currentPath);
+    } catch (err) {
+      console.error("❌ Move error:", err);
+      alert("Move failed: " + err);
+    }
+  }
 </script>
 
 <div class="address-container">
@@ -41,9 +121,18 @@
           class="path-input"
         />
       {:else}
-        <div class="breadcrumbs" on:click={enableInput}>
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <div class="breadcrumbs" on:click={enableInput} role="textbox" tabindex="0">
           {#each parts as part, i}
-            <button class="crumb" on:click|stopPropagation={() => navigateTo(i)}>
+            <button 
+              class="crumb" 
+              class:drag-over={dragOverCrumb === i}
+              on:click|stopPropagation={() => navigateTo(i)}
+              on:dragenter={(e) => handleCrumbDragEnter(e, i)}
+              on:dragover={(e) => handleCrumbDragOver(e, i)}
+              on:dragleave={handleCrumbDragLeave}
+              on:drop={(e) => handleCrumbDrop(e, i)}
+            >
               {part}
             </button>
             <span class="divider">›</span>
@@ -53,6 +142,8 @@
       {/if}
     </div>
 
+    <ViewModeSelector />
+
     <div class="nav-controls">
       <button class="nav-btn" disabled={!$activeTab || $activeTab.historyIndex <= 0} on:click={() => fileTabs.goBack()}>&lt;</button>
       <button class="nav-btn" disabled={!$activeTab || $activeTab.historyIndex >= $activeTab.history.length - 1} on:click={() => fileTabs.goForward()}>&gt;</button>
@@ -60,26 +151,33 @@
 </div>
 
 <style>
-  .address-container { display: flex; align-items: center; width: 100%; height: 100%; padding-right: 10px; }
+  .address-container { 
+    display: flex; 
+    align-items: center; 
+    width: 100%; 
+    height: 100%; 
+    padding-right: 10px; 
+    gap: 8px;
+  }
   .nav-controls { display: flex; gap: 2px; margin-left: 6px; -webkit-app-region: no-drag; }
   
   .nav-btn { 
     background: transparent; border: none; 
-    color: var(--text-muted); /* UPDATED */
+    color: var(--text-muted);
     width: 24px; height: 24px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; 
   }
   .nav-btn:hover:not(:disabled) { 
-    background: var(--hover-bg); /* UPDATED */
-    color: var(--text-main); /* UPDATED */
+    background: var(--hover-bg);
+    color: var(--text-main);
   }
   .nav-btn:disabled { color: var(--text-muted); opacity: 0.3; cursor: default; }
 
   .address-bar { 
     flex: 1; height: 26px; 
-    background: var(--bg-input); /* UPDATED */
-    border: 1px solid var(--border); /* UPDATED */
+    background: var(--bg-input);
+    border: 1px solid var(--border);
     border-radius: 4px; display: flex; align-items: center; overflow: hidden; 
-    color: var(--text-main); /* UPDATED */
+    color: var(--text-main);
     -webkit-app-region: no-drag; 
   }
 
@@ -88,12 +186,19 @@
   
   .crumb { 
     background: transparent; border: none; 
-    color: var(--text-muted); /* UPDATED */
-    cursor: pointer; padding: 0 4px; font-size: 13px; height: 20px; border-radius: 3px; 
+    color: var(--text-muted);
+    cursor: pointer; padding: 0 4px; font-size: 13px; height: 20px; border-radius: 3px;
+    transition: all 0.15s;
   }
   .crumb:hover { 
-    background: var(--hover-bg); /* UPDATED */
-    color: var(--text-main); /* UPDATED */
+    background: var(--hover-bg);
+    color: var(--text-main);
+  }
+  .crumb.drag-over {
+    background: rgba(59, 130, 246, 0.3);
+    color: var(--text-main);
+    outline: 2px dashed #3b82f6;
+    outline-offset: -2px;
   }
   
   .divider { color: var(--text-muted); font-size: 14px; margin: 0 2px; }

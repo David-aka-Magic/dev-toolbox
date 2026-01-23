@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use tauri::command;
 use base64::{Engine as _, engine::general_purpose};
@@ -10,6 +11,46 @@ pub struct FileEntry {
     name: String,
     path: String,
     is_dir: bool,
+    size: Option<u64>,      // File size in bytes (calculated recursively for directories)
+    modified: Option<u64>,  // Last modified timestamp (seconds since UNIX epoch)
+}
+
+/// Recursively calculate the total size of a directory
+/// Returns None if the folder exceeds MAX_FILES_FOR_SIZE_CALC files (too expensive to calculate)
+const MAX_FILES_FOR_SIZE_CALC: usize = 1000;
+
+fn calculate_dir_size(path: &Path) -> Option<u64> {
+    let mut total_size: u64 = 0;
+    let mut file_count: usize = 0;
+    
+    fn calc_recursive(path: &Path, total_size: &mut u64, file_count: &mut usize, max_files: usize) -> bool {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                *file_count += 1;
+                
+                // Bail out if we've exceeded the limit
+                if *file_count > max_files {
+                    return false;
+                }
+                
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    if !calc_recursive(&entry_path, total_size, file_count, max_files) {
+                        return false;
+                    }
+                } else if let Ok(metadata) = entry.metadata() {
+                    *total_size += metadata.len();
+                }
+            }
+        }
+        true
+    }
+    
+    if calc_recursive(path, &mut total_size, &mut file_count, MAX_FILES_FOR_SIZE_CALC) {
+        Some(total_size)
+    } else {
+        None // Too many files, skip size calculation
+    }
 }
 
 // --- HELPER: Handle Duplicates (e.g. "File (1).txt") ---
@@ -24,7 +65,6 @@ fn get_unique_path(path: PathBuf) -> PathBuf {
 
     let mut i = 1;
     loop {
-        // Generates: "filename (1).ext"
         let new_name = format!("{} ({}){}", file_stem, i, extension);
         let new_path = parent.join(new_name);
         
@@ -45,17 +85,48 @@ pub fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
             let path_buf = entry.path();
             if let Some(name_os) = path_buf.file_name() {
                 let name = name_os.to_string_lossy().to_string();
+                
+                // Skip hidden files
+                if name.starts_with('.') {
+                    continue;
+                }
+
                 let is_dir = path_buf.is_dir();
                 let path_str = path_buf.to_string_lossy().to_string();
 
-                if !name.starts_with('.') {
-                    entries.push(FileEntry { name, path: path_str, is_dir });
-                }
+                // Get metadata for size and modified time
+                let (size, modified) = match fs::metadata(&path_buf) {
+                    Ok(meta) => {
+                        // Size: calculate recursively for directories (with file count limit)
+                        let size = if is_dir {
+                            calculate_dir_size(&path_buf)
+                        } else {
+                            Some(meta.len())
+                        };
+                        
+                        // Modified time: convert to seconds since UNIX epoch
+                        let modified = meta.modified().ok().and_then(|time| {
+                            time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+                        });
+                        
+                        (size, modified)
+                    }
+                    Err(_) => (None, None),
+                };
+
+                entries.push(FileEntry { 
+                    name, 
+                    path: path_str, 
+                    is_dir,
+                    size,
+                    modified,
+                });
             }
         }
     }
 
-    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+    // Sort: directories first, then alphabetically by name
+    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     Ok(entries)
 }
 
@@ -113,6 +184,50 @@ pub fn move_item(source: String, destination: String) -> Result<(), String> {
     let final_dest = get_unique_path(dest_path);
 
     fs::rename(source, final_dest).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn copy_item(source: String, destination: String, new_name: Option<String>) -> Result<(), String> {
+    let src_path = Path::new(&source);
+    let dest_folder = Path::new(&destination);
+    
+    if !src_path.exists() || !dest_folder.is_dir() {
+        return Err("Invalid source or destination".to_string());
+    }
+
+    let file_name = match &new_name {
+        Some(name) => name.as_str(),
+        None => src_path.file_name().and_then(|n| n.to_str()).ok_or("Invalid source filename")?
+    };
+    
+    let dest_path = dest_folder.join(file_name);
+    let final_dest = if new_name.is_some() { dest_path } else { get_unique_path(dest_path) };
+
+    if src_path.is_dir() {
+        copy_dir_recursive(src_path, &final_dest)?;
+    } else {
+        fs::copy(src_path, final_dest).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    
+    for entry in fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
+        }
+    }
+    
+    Ok(())
 }
 
 #[command]
@@ -181,167 +296,56 @@ pub fn extract_video_thumbnail(path: String) -> Result<String, String> {
         .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
 
     if !output.status.success() {
-        let _ = fs::remove_file(&temp_output);
-        return Err("Failed to extract video frame".to_string());
+        return Err("FFmpeg failed to extract thumbnail".to_string());
     }
 
-    let bytes = fs::read(&temp_output)
-        .map_err(|e| format!("Failed to read thumbnail: {}", e))?;
-    
+    let bytes = fs::read(&temp_output).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(&temp_output);
-
+    
     Ok(general_purpose::STANDARD.encode(&bytes))
-}
-
-fn detect_gpu_encoder(ffmpeg_path: &str) -> Option<String> {
-    let nvenc_test = Command::new(ffmpeg_path)
-        .args(["-hide_banner", "-encoders"])
-        .output();
-    
-    if let Ok(output) = nvenc_test {
-        let encoders = String::from_utf8_lossy(&output.stdout);
-        
-        if encoders.contains("h264_nvenc") {
-            return Some("h264_nvenc".to_string());
-        }
-        if encoders.contains("h264_qsv") {
-            return Some("h264_qsv".to_string());
-        }
-        if encoders.contains("h264_amf") {
-            return Some("h264_amf".to_string());
-        }
-        if encoders.contains("h264_videotoolbox") {
-            return Some("h264_videotoolbox".to_string());
-        }
-    }
-    
-    None
-}
-
-fn try_encode_video(
-    ffmpeg_path: &str,
-    input_path: &str,
-    output_path: &Path,
-    max_duration: u32,
-    resolution: u32,
-    fps: u32,
-    encoder: &str,
-    is_gpu: bool
-) -> Result<(), String> {
-    let mut args = vec![
-        "-i".to_string(),
-        input_path.to_string(),
-        "-t".to_string(),
-        max_duration.to_string(),
-        "-vf".to_string(),
-        format!("scale={}:{}:force_original_aspect_ratio=decrease,fps={}", resolution, resolution, fps),
-        "-c:v".to_string(),
-        encoder.to_string(),
-    ];
-    
-    // Add encoder-specific settings
-    if is_gpu {
-        args.extend(["-preset".to_string(), "fast".to_string()]);
-        if encoder.contains("nvenc") {
-            args.extend([
-                "-rc".to_string(), "vbr".to_string(),
-                "-cq".to_string(), "28".to_string(),
-            ]);
-        }
-    } else {
-        args.extend([
-            "-preset".to_string(), "ultrafast".to_string(),
-            "-crf".to_string(), "28".to_string(),
-        ]);
-    }
-    
-    args.extend([
-        "-an".to_string(),
-        "-y".to_string(),
-        output_path.to_str().unwrap().to_string(),
-    ]);
-    
-    println!("   Trying encoder: {} ({})", encoder, if is_gpu { "GPU" } else { "CPU" });
-    
-    let output = Command::new(ffmpeg_path)
-        .args(&args)
-        .stderr(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .output()
-        .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Encoder {} failed: {}", encoder, stderr));
-    }
-    
-    Ok(())
 }
 
 #[command]
 pub fn generate_video_preview(
-    path: String,
-    max_duration: u32,
-    resolution: u32,
+    path: String, 
+    max_duration: u32, 
+    resolution: u32, 
     fps: u32,
     use_hardware_accel: bool
 ) -> Result<String, String> {
-    println!("🎬 generate_video_preview called");
-    println!("   Input: {}", path);
-    println!("   Settings: {}x{} @ {}fps, {}s max", resolution, resolution, fps, max_duration);
-    
     let ffmpeg_path = find_ffmpeg()?;
     
     let temp_dir = std::env::temp_dir().join("dev-toolkit-previews");
     fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     
-    let preview_output = temp_dir.join(format!("preview_{}.mp4", uuid::Uuid::new_v4()));
+    let output_path = temp_dir.join(format!("preview_{}.webm", uuid::Uuid::new_v4()));
     
-    // Try GPU encoding first if requested
+    let mut args = vec![
+        "-i".to_string(), path,
+        "-t".to_string(), max_duration.to_string(),
+        "-vf".to_string(), format!("scale={}:-1,fps={}", resolution, fps),
+        "-an".to_string(),  // No audio
+        "-c:v".to_string(), "libvpx-vp9".to_string(),
+        "-b:v".to_string(), "200k".to_string(),
+        "-y".to_string(),
+        output_path.to_string_lossy().to_string()
+    ];
+    
     if use_hardware_accel {
-        if let Some(gpu_encoder) = detect_gpu_encoder(&ffmpeg_path) {
-            println!("   GPU encoder available: {}", gpu_encoder);
-            
-            // Try GPU encoding
-            match try_encode_video(
-                &ffmpeg_path,
-                &path,
-                &preview_output,
-                max_duration,
-                resolution,
-                fps,
-                &gpu_encoder,
-                true
-            ) {
-                Ok(_) => {
-                    println!("✅ Video preview generated successfully with GPU!");
-                    return Ok(preview_output.to_str().unwrap().to_string());
-                }
-                Err(e) => {
-                    println!("⚠️ GPU encoding failed: {}", e);
-                    println!("   Falling back to CPU encoding...");
-                    // Clean up failed output
-                    let _ = fs::remove_file(&preview_output);
-                }
-            }
-        } else {
-            println!("   No GPU encoder detected, using CPU");
-        }
+        args.insert(0, "-hwaccel".to_string());
+        args.insert(1, "auto".to_string());
     }
     
-    // Fallback to software encoding
-    println!("   Using software encoder: libx264");
-    try_encode_video(
-        &ffmpeg_path,
-        &path,
-        &preview_output,
-        max_duration,
-        resolution,
-        fps,
-        "libx264",
-        false
-    )?;
-    
-    println!("✅ Video preview generated successfully with CPU!");
-    Ok(preview_output.to_str().unwrap().to_string())
+    let output = Command::new(&ffmpeg_path)
+        .args(&args)
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+
+    if !output.status.success() {
+        return Err("FFmpeg failed to generate preview".to_string());
+    }
+
+    Ok(output_path.to_string_lossy().to_string())
 }

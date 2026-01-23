@@ -102,6 +102,7 @@ function createThumbnailLoader() {
   }
 
   return {
+    // IMPORTANT: Expose subscribe so $thumbnailLoader works in Svelte
     subscribe,
 
     /**
@@ -152,3 +153,10 @@ function createThumbnailLoader() {
 }
 
 export const thumbnailLoader = createThumbnailLoader();
+
+// Also export a derived store for just the thumbnails map (for simpler usage)
+export const thumbnails = {
+  subscribe: (fn: (value: Map<string, string>) => void) => {
+    return thumbnailLoader.subscribe(state => fn(state.thumbnails));
+  }
+};

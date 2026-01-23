@@ -19,6 +19,7 @@ pub fn run() {
             files::create_directory,
             files::create_file,
             files::move_item,
+            files::copy_item,  // Added for clipboard paste
             files::read_file,
             files::write_file,
             files::read_file_base64,
