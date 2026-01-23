@@ -366,6 +366,6 @@
     background-color: var(--bg-main);
     color: var(--text-main);
     position: relative;
-    z-index: 10000;
+    z-index: 500;
   }
 </style>

@@ -41,14 +41,6 @@
     {/each}
   </div>
 
-  <!-- Footer slot: theme toggle -->
-  <svelte:fragment slot="footer">
-    <button class="footer-btn" on:click={toggleTheme}>
-      <span class="theme-icon">🌓</span>
-      Theme
-    </button>
-  </svelte:fragment>
-  
 </Sidebar>
 
 <style>

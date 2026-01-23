@@ -46,6 +46,51 @@
   --tab-active-border: #2563eb;
 }
 
+:root[data-theme="dracula"] {
+  --bg-main: #282a36;
+  --bg-panel: #21222c;
+  --bg-header: #191a21;
+  --bg-input: #44475a;
+  
+  --border: #6272a4;
+  --border-focus: #ff79c6;
+  
+  --text-main: #f8f8f2;
+  --text-muted: #6272a4;
+  
+  --hover-bg: rgba(255, 255, 255, 0.1);
+  --selection: rgba(255, 121, 198, 0.3);
+
+  --tab-inactive-bg: transparent;
+  --tab-inactive-fg: #6272a4;
+  --tab-active-bg: #282a36;
+  --tab-active-fg: #50fa7b;
+  --tab-active-border: #ff79c6;
+}
+
+/* MONOKAI THEME */
+:root[data-theme="monokai"] {
+  --bg-main: #272822;
+  --bg-panel: #1e1f1c;
+  --bg-header: #171814;
+  --bg-input: #3e3d32;
+  
+  --border: #49483e;
+  --border-focus: #a6e22e;
+  
+  --text-main: #f8f8f2;
+  --text-muted: #75715e;
+  
+  --hover-bg: rgba(255, 255, 255, 0.1);
+  --selection: rgba(166, 226, 46, 0.2);
+
+  --tab-inactive-bg: transparent;
+  --tab-inactive-fg: #75715e;
+  --tab-active-bg: #272822;
+  --tab-active-fg: #f8f8f2;
+  --tab-active-border: #a6e22e;
+}
+
 /* GLOBAL RESET */
 body {
   margin: 0;

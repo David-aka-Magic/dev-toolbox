@@ -30,32 +30,29 @@ pub fn spawn_terminal(id: String, profile: String, app: AppHandle, state: State<
 
     // 1. SELECT THE SHELL BASED ON PROFILE
     let mut cmd = if cfg!(target_os = "windows") {
-        match profile.as_str() {
-            // ✅ ADDED: Explicitly handle PowerShell 7
-            "pwsh" => CommandBuilder::new("pwsh.exe"), 
-            
-            "cmd" => CommandBuilder::new("cmd.exe"),
-            "git-bash" => {
-                // Common path for Git Bash on Windows
-                let path = "C:\\Program Files\\Git\\bin\\bash.exe";
-                if std::path::Path::new(path).exists() {
-                     CommandBuilder::new(path)
-                } else {
-                    // Fallback if Git Bash isn't found
-                    CommandBuilder::new("powershell.exe")
-                }
-            },
-            "wsl" => CommandBuilder::new("wsl.exe"),
-            
-            // Default fallback (PowerShell 5)
-            _ => CommandBuilder::new("powershell.exe"), 
-        }
-    } else {
-        // Linux/Mac defaults
-        let mut c = CommandBuilder::new("bash");
-        c.env("TERM", "xterm-256color");
-        c
-    };
+            match profile.as_str() {
+                "pwsh" => CommandBuilder::new("pwsh.exe"),
+                "cmd" => CommandBuilder::new("cmd.exe"),
+                "git-bash" => {
+                    let path = "C:\\Program Files\\Git\\bin\\bash.exe";
+                    if std::path::Path::new(path).exists() {
+                         CommandBuilder::new(path)
+                    } else {
+                        CommandBuilder::new("powershell.exe")
+                    }
+                },
+                "wsl" => CommandBuilder::new("wsl.exe"),
+                
+                // CHANGE: If the profile string doesn't match a preset, 
+                // assume it is a raw path provided by the user settings.
+                custom_path => CommandBuilder::new(custom_path), 
+            }
+        } else {
+            // Linux/Mac logic...
+            let mut c = CommandBuilder::new("bash");
+            c.env("TERM", "xterm-256color");
+            c
+        };
 
     // 2. Create the PTY pair
     let pair = pty_system.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })

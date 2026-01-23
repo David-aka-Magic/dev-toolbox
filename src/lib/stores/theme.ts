@@ -1,7 +1,8 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
-type Theme = 'light' | 'dark';
+// UPDATED: Added new themes to the type definition
+type Theme = 'light' | 'dark' | 'dracula' | 'monokai';
 
 const initialTheme: Theme = browser 
   ? (localStorage.getItem('theme') as Theme) || 'dark'

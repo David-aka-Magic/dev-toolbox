@@ -4,6 +4,7 @@
   // Layout Components
   import TitleBar from '../components/layout/TitleBar.svelte';
   import NavBar from '../components/layout/NavBar.svelte';
+  import SettingsModal from '../components/layout/SettingsModal.svelte'; // NEW IMPORT
   
   // Views
   import TerminalView from '../components/terminal/TerminalView.svelte';
@@ -12,6 +13,8 @@
   import EditorView from '../components/editor/EditorView.svelte';
   import ApiTester from '../components/apitester/ApiTester.svelte';
 </script>
+
+<SettingsModal />
 
 <div class="app-container">
   
@@ -27,10 +30,7 @@
 
     <div class="main-viewport">
 
-      <div 
-        class="view-layer terminal-layout" 
-        style:display={$currentView === 'terminal' ? 'flex' : 'none'}
-      >
+      <div class="view-layer terminal-layout" style:display={$currentView === 'terminal' ? 'flex' : 'none'}>
         <div class="terminal-area">
           <TerminalView />
         </div>
@@ -58,8 +58,10 @@
 </div>
 
 <style>
+  /* Keep your existing styles exactly as they were in */
   :global(body) { 
-    margin: 0; padding: 0; 
+    margin: 0;
+    padding: 0; 
     background: var(--bg-main);
     color: var(--text-main);
     overflow: hidden; 
@@ -94,22 +96,20 @@
     width: 100%;
     height: 100%;
     position: absolute;
-    top: 0; 
+    top: 0;
     left: 0;
   }
 
-  /* TERMINAL LAYOUT */
   .terminal-layout { flex-direction: row; }
   .terminal-area {
     flex: 1; min-width: 0; height: 100%; position: relative;
   }
 
   .sidebar-panel {
-    /* CHANGED: Let FileTree control its own width */
     flex: 0 0 auto;
     height: 100%;
     border-left: 1px solid var(--border);
     background: var(--bg-panel);
-    overflow: hidden; /* Important: hide overflow so collapse animation works */
+    overflow: hidden;
   }
 </style>
