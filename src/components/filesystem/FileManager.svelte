@@ -4,6 +4,7 @@
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
   import { currentView } from '$lib/stores/viewStore';
   import { viewMode, sortConfig, sortFiles } from '$lib/stores/viewModeStore';
+  import { settings } from '$lib/stores/settingsStore';
   import { tick } from "svelte";
 
   import FileGrid from './FileGrid.svelte';
@@ -22,7 +23,6 @@
   let isLoading = false;
   let fileGridRef: any;
 
-  // Prevent duplicate paste operations
   let isPasting = false;
 
   let showMenu = false;
@@ -33,10 +33,47 @@
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
 
-  $: sortedFiles = sortFiles(files, $sortConfig);
+  // Folder size cache
+  let folderSizes: Map<string, number | null> = new Map();
+
+  // Filter hidden files based on settings
+  $: visibleFiles = $settings.fileShowHidden 
+    ? files 
+    : files.filter(f => !f.name.startsWith('.'));
+
+  $: sortedFiles = sortFiles(visibleFiles, $sortConfig);
 
   $: if ($activeTab && $activeTab.path) {
     loadFiles($activeTab.path);
+  }
+
+  // Calculate folder sizes when setting is enabled
+  $: if ($settings.fileShowFolderSize && files.length > 0) {
+    calculateFolderSizes();
+  }
+
+  async function calculateFolderSizes() {
+    const folders = files.filter(f => f.is_dir);
+    
+    for (const folder of folders) {
+      if (folderSizes.has(folder.path)) continue;
+      
+      try {
+        const folderFiles = await invoke<any[]>("read_directory", { path: folder.path });
+        
+        if (folderFiles.length > $settings.fileFolderSizeThreshold) {
+          folderSizes.set(folder.path, null);
+        } else {
+          const totalSize = await invoke<number>("get_folder_size", { path: folder.path });
+          folderSizes.set(folder.path, totalSize);
+        }
+        
+        folderSizes = folderSizes;
+      } catch (err) {
+        folderSizes.set(folder.path, null);
+        folderSizes = folderSizes;
+      }
+    }
   }
 
   async function loadFiles(path: string, targetSelect: string | null = null) {
@@ -49,6 +86,7 @@
     renamingFile = null;
     creationType = null;
     thumbnailLoader.clearThumbnails();
+    folderSizes = new Map();
 
     try {
       files = await invoke("read_directory", { path });
@@ -89,66 +127,31 @@
   }
 
   async function pasteFiles(targetPath?: string) {
-    // Prevent duplicate paste operations
+    const currentPath = $activeTab?.path;
+    if (!currentPath) return;
+
+    const clipboardState = clipboard.getState();
+    if (clipboardState.files.length === 0) return;
+
     if (isPasting) return;
     isPasting = true;
 
-    const currentPath = $activeTab?.path;
-    if (!currentPath) {
-      isPasting = false;
-      return;
-    }
-    
-    const clipboardState = clipboard.getState();
-    if (clipboardState.files.length === 0) {
-      isPasting = false;
-      return;
-    }
+    const destinationPath = targetPath || currentPath;
 
-    // Determine destination: if a folder is selected and no explicit target, paste into it
-    let destinationPath = targetPath || currentPath;
-    
-    if (!targetPath && $selectedFiles.size === 1) {
-      const selectedFileName = Array.from($selectedFiles)[0];
-      const selectedFile = files.find(f => f.name === selectedFileName);
-      if (selectedFile?.is_dir) {
-        destinationPath = selectedFile.path;
-      }
-    }
-
-    // Prevent pasting a folder into itself
-    for (const sourcePath of clipboardState.files) {
-      if (destinationPath === sourcePath || destinationPath.startsWith(sourcePath + '\\') || destinationPath.startsWith(sourcePath + '/')) {
-        alert("Cannot paste a folder into itself or its subdirectory");
-        isPasting = false;
-        return;
-      }
-    }
-    
     try {
-      // Get current files in destination for duplicate checking
-      let destFiles: any[] = [];
-      try {
-        destFiles = await invoke("read_directory", { path: destinationPath });
-      } catch (e) {
-        // If we can't read the destination, proceed anyway
-      }
+      const destFiles = await invoke<any[]>("read_directory", { path: destinationPath });
 
-      for (let i = 0; i < clipboardState.files.length; i++) {
-        const sourcePath = clipboardState.files[i];
-        const fileName = clipboardState.fileNames[i];
+      for (const sourcePath of clipboardState.files) {
+        const fileName = sourcePath.split(/[\\/]/).pop()!;
         
-        // Check if pasting in same location with copy operation
-        const isSameLocation = clipboardState.sourcePath === destinationPath;
+        const existsInDest = destFiles.some(f => f.name === fileName);
         
-        if (isSameLocation && clipboardState.operation === 'copy') {
-          // Generate unique name
-          let newName = fileName;
+        if (existsInDest && clipboardState.operation === 'copy') {
           let counter = 1;
+          let newName = fileName;
           const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
           const baseName = ext ? fileName.slice(0, -ext.length) : fileName;
           
-          // Check against destination files
           const existingNames = new Set(destFiles.map(f => f.name));
           while (existingNames.has(newName)) {
             newName = `${baseName} (${counter})${ext}`;
@@ -218,6 +221,16 @@
     }
   }
 
+  function confirmDelete(filesToDelete: string[]): boolean {
+    if (!$settings.fileConfirmDelete) return true;
+    
+    const confirmMessage = filesToDelete.length === 1
+      ? `Delete "${filesToDelete[0]}"?`
+      : `Delete ${filesToDelete.length} items?`;
+    
+    return confirm(confirmMessage);
+  }
+
   async function handleMenuAction(action: string) {
     showMenu = false;
     const currentPath = $activeTab?.path;
@@ -274,11 +287,7 @@
         
         if (filesToDelete.length === 0) return;
         
-        const confirmMessage = filesToDelete.length === 1
-          ? `Delete "${filesToDelete[0]}"?`
-          : `Delete ${filesToDelete.length} items?`;
-        
-        if (confirm(confirmMessage)) {
+        if (confirmDelete(filesToDelete)) {
           try {
             for (const fileName of filesToDelete) {
               const deletePath = joinPath(currentPath, fileName);
@@ -297,6 +306,16 @@
   }
 
   function openFile(file: any) {
+    if (isImageFile(file.name)) {
+      openMediaInNewWindow(file.path, file.name, 'image');
+    } else if (isVideoFile(file.name)) {
+      openMediaInNewWindow(file.path, file.name, 'video');
+    } else {
+      openInEditor(file);
+    }
+  }
+
+  function openInPreview(file: any) {
     if (isImageFile(file.name)) {
       openMediaInNewWindow(file.path, file.name, 'image');
     } else if (isVideoFile(file.name)) {
@@ -341,7 +360,18 @@
     if (file.is_dir) {
       fileTabs.updateActivePath(file.path);
     } else {
-      openFile(file);
+      switch ($settings.fileDoubleClickAction) {
+        case 'preview':
+          openInPreview(file);
+          break;
+        case 'editor':
+          openInEditor(file);
+          break;
+        case 'open':
+        default:
+          openFile(file);
+          break;
+      }
     }
   }
 
@@ -484,11 +514,8 @@
       if (!currentPath || $selectedFiles.size === 0) return;
       
       const filesToDelete = Array.from($selectedFiles);
-      const confirmMessage = filesToDelete.length === 1
-        ? `Delete "${filesToDelete[0]}"?`
-        : `Delete ${filesToDelete.length} items?`;
       
-      if (confirm(confirmMessage)) {
+      if (confirmDelete(filesToDelete)) {
         (async () => {
           try {
             for (const fileName of filesToDelete) {
@@ -538,6 +565,7 @@
       {isLoading}
       {renamingFile}
       {creationType}
+      {folderSizes}
       onbackgroundclick={handleBackgroundClick}
       onitemdblclick={handleItemDblClick}
       onitemcontextmenu={handleItemContextMenu}
@@ -598,6 +626,5 @@
     background-color: var(--bg-main);
     color: var(--text-main);
     position: relative;
-    z-index: 10000;
   }
 </style>

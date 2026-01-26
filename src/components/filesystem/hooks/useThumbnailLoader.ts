@@ -3,9 +3,10 @@
  * Handles lazy loading of image/video thumbnails with concurrency limits
  */
 
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { isImageFile, isVideoFile, getImageMimeType } from './fileUtils';
+import { settings } from '$lib/stores/settingsStore';
 
 export interface ThumbnailState {
   thumbnails: Map<string, string>;
@@ -17,8 +18,6 @@ interface QueueItem {
   name: string;
 }
 
-const MAX_CONCURRENT_LOADS = 5;
-
 function createThumbnailLoader() {
   const { subscribe, set, update } = writable<ThumbnailState>({
     thumbnails: new Map<string, string>(),
@@ -28,11 +27,25 @@ function createThumbnailLoader() {
   let thumbnailQueue: QueueItem[] = [];
   let activeLoads = 0;
 
+  // Get max concurrent from settings
+  function getMaxConcurrent(): number {
+    const currentSettings = get(settings);
+    return currentSettings.fileMaxConcurrentThumbnails || 5;
+  }
+
+  // Get thumbnail size from settings
+  function getThumbnailSize(): number {
+    const currentSettings = get(settings);
+    return currentSettings.fileThumbnailSize || 48;
+  }
+
   /**
    * Process the thumbnail queue
    */
   async function processQueue() {
-    while (thumbnailQueue.length > 0 && activeLoads < MAX_CONCURRENT_LOADS) {
+    const maxConcurrent = getMaxConcurrent();
+    
+    while (thumbnailQueue.length > 0 && activeLoads < maxConcurrent) {
       const item = thumbnailQueue.shift();
       if (item) {
         activeLoads++;
@@ -62,13 +75,17 @@ function createThumbnailLoader() {
     try {
       let base64: string;
       let mimeType: string;
+      const thumbnailSize = getThumbnailSize();
 
       if (isVideoFile(fileName)) {
-        // Extract video thumbnail
-        base64 = await invoke<string>('extract_video_thumbnail', { path: filePath });
+        // Extract video thumbnail with configured size
+        base64 = await invoke<string>('extract_video_thumbnail', { 
+          path: filePath,
+          size: thumbnailSize
+        });
         mimeType = 'image/png';
       } else {
-        // Load image directly
+        // Load image directly (could add resizing here if needed)
         base64 = await invoke<string>('read_file_base64', { path: filePath });
         mimeType = getImageMimeType(fileName);
       }
@@ -102,61 +119,44 @@ function createThumbnailLoader() {
   }
 
   return {
-    // IMPORTANT: Expose subscribe so $thumbnailLoader works in Svelte
     subscribe,
 
     /**
-     * Queue thumbnails for a list of files
+     * Queue files for thumbnail loading
      */
     queueThumbnails: (files: any[]) => {
-      thumbnailQueue = [];
-      
-      for (const file of files) {
-        if (!file.is_dir) {
-          if (isImageFile(file.name) || isVideoFile(file.name)) {
-            thumbnailQueue.push({ path: file.path, name: file.name });
-          }
-        }
-      }
+      const mediaFiles = files.filter(f => 
+        !f.is_dir && (isImageFile(f.name) || isVideoFile(f.name))
+      );
+
+      thumbnailQueue = mediaFiles.map(f => ({
+        path: f.path,
+        name: f.name
+      }));
 
       processQueue();
     },
 
     /**
-     * Clear all thumbnails (when changing directories)
+     * Clear all thumbnails (when changing directory)
      */
     clearThumbnails: () => {
+      thumbnailQueue = [];
       set({
         thumbnails: new Map<string, string>(),
         loadingSet: new Set<string>()
       });
-      thumbnailQueue = [];
-      activeLoads = 0;
     },
 
     /**
-     * Get thumbnail for a specific file
+     * Get current thumbnail size setting
      */
-    getThumbnail: (fileName: string): string | undefined => {
-      const state = get({ subscribe });
-      return state.thumbnails.get(fileName);
-    },
-
-    /**
-     * Check if a thumbnail is currently loading
-     */
-    isLoading: (fileName: string): boolean => {
-      const state = get({ subscribe });
-      return state.loadingSet.has(fileName);
-    }
+    getThumbnailSize
   };
 }
 
 export const thumbnailLoader = createThumbnailLoader();
 
-// Also export a derived store for just the thumbnails map (for simpler usage)
-export const thumbnails = {
-  subscribe: (fn: (value: Map<string, string>) => void) => {
-    return thumbnailLoader.subscribe(state => fn(state.thumbnails));
-  }
-};
+// Derived store that just exposes the thumbnails Map for backward compatibility
+// Usage: $thumbnails.get(filename) or $thumbnails.has(filename)
+export const thumbnails = derived(thumbnailLoader, $state => $state.thumbnails);

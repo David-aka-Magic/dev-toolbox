@@ -1,4 +1,5 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
+import { browser } from '$app/environment';
 
 export interface FileTab {
     id: string;
@@ -8,13 +9,44 @@ export interface FileTab {
     historyIndex: number;
 }
 
-const initialTab: FileTab = {
-    id: crypto.randomUUID(),
-    name: 'Home',
-    path: 'C:\\', 
-    history: ['C:\\'],
-    historyIndex: 0
-};
+// Get initial path from settings
+function getInitialPath(): string {
+    if (!browser) return 'C:\\';
+    
+    try {
+        const stored = localStorage.getItem('app-settings');
+        if (stored) {
+            const settings = JSON.parse(stored);
+            
+            // If remember last path is enabled and we have a last path
+            if (settings.fileRememberLastPath && settings.fileLastPath) {
+                return settings.fileLastPath;
+            }
+            
+            // Otherwise use default start path
+            if (settings.fileDefaultStartPath) {
+                return settings.fileDefaultStartPath;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load initial path from settings:', e);
+    }
+    
+    return 'C:\\';
+}
+
+function createInitialTab(): FileTab {
+    const initialPath = getInitialPath();
+    return {
+        id: crypto.randomUUID(),
+        name: initialPath.split(/[\\/]/).filter(p => p).pop() || 'Drive',
+        path: initialPath,
+        history: [initialPath],
+        historyIndex: 0
+    };
+}
+
+const initialTab = createInitialTab();
 
 function createFileTabStore() {
     const { subscribe, update } = writable<{ tabs: FileTab[], activeId: string }>({
@@ -22,10 +54,27 @@ function createFileTabStore() {
         activeId: initialTab.id
     });
 
+    // Helper to save last path to settings
+    function saveLastPath(path: string) {
+        if (!browser) return;
+        
+        try {
+            const stored = localStorage.getItem('app-settings');
+            if (stored) {
+                const settings = JSON.parse(stored);
+                if (settings.fileRememberLastPath) {
+                    settings.fileLastPath = path;
+                    localStorage.setItem('app-settings', JSON.stringify(settings));
+                }
+            }
+        } catch (e) {
+            console.error('Failed to save last path:', e);
+        }
+    }
+
     return {
         subscribe,
         
-        // ... (Keep addTab, closeTab, setActive, updateActivePath, etc.) ...
         addTab: (startPath: string = 'C:\\') => update(state => {
             const newTab: FileTab = {
                 id: crypto.randomUUID(),
@@ -46,11 +95,13 @@ function createFileTabStore() {
             }
             return { tabs: remaining, activeId: newActiveId };
         }),
-        
 
         setActive: (id: string) => update(state => ({ ...state, activeId: id })),
 
         updateActivePath: (newPath: string) => update(state => {
+            // Save to settings
+            saveLastPath(newPath);
+            
             return {
                 ...state,
                 tabs: state.tabs.map(tab => {
@@ -60,8 +111,6 @@ function createFileTabStore() {
                         return { 
                             ...tab, 
                             path: newPath, 
-                            // Only auto-rename if the user hasn't manually renamed it? 
-                            // For now, let's keep auto-rename behavior or you can remove this line:
                             name: newPath.split(/[\\/]/).filter(p=>p).pop() || 'Drive', 
                             history: newHistory,
                             historyIndex: newHistory.length - 1
@@ -77,18 +126,19 @@ function createFileTabStore() {
             tabs: state.tabs.map(t => t.id === id ? { ...t, name: newName } : t)
         })),
 
-        // ... (Keep goBack and goForward) ...
         goBack: () => update(state => {
-             return {
+            return {
                 ...state,
                 tabs: state.tabs.map(tab => {
                     if (tab.id === state.activeId && tab.historyIndex > 0) {
                         const newIndex = tab.historyIndex - 1;
-                        return { 
-                            ...tab, 
-                            historyIndex: newIndex, 
-                            path: tab.history[newIndex],
-                            name: tab.history[newIndex].split(/[\\/]/).filter(p=>p).pop() || 'Drive'
+                        const newPath = tab.history[newIndex];
+                        saveLastPath(newPath);
+                        return {
+                            ...tab,
+                            historyIndex: newIndex,
+                            path: newPath,
+                            name: newPath.split(/[\\/]/).filter(p=>p).pop() || 'Drive'
                         };
                     }
                     return tab;
@@ -97,24 +147,42 @@ function createFileTabStore() {
         }),
 
         goForward: () => update(state => {
-             return {
+            return {
                 ...state,
                 tabs: state.tabs.map(tab => {
                     if (tab.id === state.activeId && tab.historyIndex < tab.history.length - 1) {
                         const newIndex = tab.historyIndex + 1;
-                        return { 
-                            ...tab, 
-                            historyIndex: newIndex, 
-                            path: tab.history[newIndex],
-                            name: tab.history[newIndex].split(/[\\/]/).filter(p=>p).pop() || 'Drive'
+                        const newPath = tab.history[newIndex];
+                        saveLastPath(newPath);
+                        return {
+                            ...tab,
+                            historyIndex: newIndex,
+                            path: newPath,
+                            name: newPath.split(/[\\/]/).filter(p=>p).pop() || 'Drive'
                         };
                     }
                     return tab;
                 })
             };
-        })
+        }),
+
+        canGoBack: () => {
+            const state = get({ subscribe });
+            const activeTab = state.tabs.find(t => t.id === state.activeId);
+            return activeTab ? activeTab.historyIndex > 0 : false;
+        },
+
+        canGoForward: () => {
+            const state = get({ subscribe });
+            const activeTab = state.tabs.find(t => t.id === state.activeId);
+            return activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false;
+        }
     };
 }
 
 export const fileTabs = createFileTabStore();
-export const activeTab = derived(fileTabs, $s => $s.tabs.find(t => t.id === $s.activeId));
+
+// Derived store for active tab
+export const activeTab = derived(fileTabs, $store => 
+    $store.tabs.find(t => t.id === $store.activeId)
+);

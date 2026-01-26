@@ -106,9 +106,11 @@ function createFileSelection() {
           
           if (!event.ctrlKey) {
             if (event.shiftKey) {
+              newState.selectedFiles = new Set(state.selectedFiles);
               newState.selectedFiles.add(files[newFocusedIndex].name);
             } else {
               newState.selectedFiles = new Set([files[newFocusedIndex].name]);
+              newState.lastSelectedIndex = newFocusedIndex;
             }
           }
           
@@ -135,11 +137,20 @@ function createFileSelection() {
      * Clear all selections
      */
     clearSelection: () => {
-      console.log('clearSelection called! Stack:', new Error().stack);
       update(state => ({
         ...state,
         selectedFiles: new Set<string>(),
         focusedIndex: -1
+      }));
+    },
+
+    /**
+     * Set selection to a specific set (used by drag selection)
+     */
+    setSelection: (fileNames: Set<string>) => {
+      update(state => ({
+        ...state,
+        selectedFiles: new Set(fileNames)
       }));
     },
 

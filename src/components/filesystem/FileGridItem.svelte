@@ -3,6 +3,7 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { thumbnailLoader } from '../filesystem/hooks/useThumbnailLoader';
   import { isVideoFile } from '../filesystem/hooks/fileUtils';
+  import { settings } from '$lib/stores/settingsStore';
 
   export let file: any;
   export let index: number;
@@ -11,6 +12,7 @@
   export let isBeingDragged: boolean = false;
   export let isRenaming: boolean = false;
   export let renameValue: string = '';
+  export let folderSize: number | null | undefined = undefined;
 
   // Callback props
   export let onclick: ((detail: any) => void) | undefined = undefined;
@@ -41,6 +43,22 @@
   $: thumbnail = $thumbnailLoader.thumbnails.get(file.name);
   $: isLoadingThumbnail = $thumbnailLoader.loadingSet.has(file.name);
   $: isVideo = isVideoFile(file.name);
+  $: iconSize = $settings.fileGridIconSize;
+  $: showFolderSize = $settings.fileShowFolderSize;
+  $: videoPreviewEnabled = $settings.fileEnableVideoPreview;
+  $: videoPreviewDuration = $settings.fileVideoPreviewDuration;
+  $: videoPreviewResolution = $settings.fileVideoPreviewResolution;
+  $: useHardwareAccel = $settings.fileUseHardwareAccel;
+
+  // Format size for display
+  function formatSize(bytes: number | null | undefined): string {
+    if (bytes === null || bytes === undefined) return '—';
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
 
   // Video preview generation
   async function generateVideoPreview(): Promise<string | null> {
@@ -51,70 +69,59 @@
     try {
       const previewPath = await invoke<string>('generate_video_preview', {
         path: file.path,
-        maxDuration: 3,
-        resolution: 160,
+        maxDuration: videoPreviewDuration,
+        resolution: videoPreviewResolution,
         fps: 15,
-        useHardwareAccel: true
+        useHardwareAccel: useHardwareAccel
       });
       videoPreviewPath = previewPath;
       return previewPath;
     } catch (err) {
-      console.error(`Failed to generate video preview for ${file.name}:`, err);
+      console.error('Failed to generate video preview:', err);
       return null;
     } finally {
       isGeneratingPreview = false;
     }
   }
 
-  // Video hover handlers
-  async function handleVideoHoverStart(videoElement: HTMLVideoElement) {
+  async function handleVideoHoverStart(videoEl: HTMLVideoElement) {
+    if (!videoPreviewEnabled) return;
+    
     hoverTimeout = window.setTimeout(async () => {
-      try {
-        const previewPath = await generateVideoPreview();
-        if (!previewPath) return;
-
-        const videoSrc = convertFileSrc(previewPath);
-        
-        if (videoElement.src !== videoSrc) {
-          videoElement.src = videoSrc;
-        }
-
-        await videoElement.play().catch(err => {
-          console.warn('Video play failed:', err);
-        });
-      } catch (err) {
-        console.error('Failed to start video preview:', err);
+      const previewPath = await generateVideoPreview();
+      if (previewPath && videoEl) {
+        videoEl.src = convertFileSrc(previewPath);
+        videoEl.play().catch(() => {});
       }
     }, HOVER_DELAY);
   }
 
-  function handleVideoHoverEnd(videoElement: HTMLVideoElement) {
+  function handleVideoHoverEnd(videoEl: HTMLVideoElement) {
     if (hoverTimeout) {
       clearTimeout(hoverTimeout);
       hoverTimeout = null;
     }
-
-    videoElement.pause();
-    videoElement.currentTime = 0;
+    if (videoEl) {
+      videoEl.pause();
+      videoEl.currentTime = 0;
+      videoEl.src = '';
+    }
   }
 
-  // Event handlers
   function handleClick(event: MouseEvent) {
-    event.stopPropagation();
     onclick?.({ event, index, fileName: file.name });
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    onkeydown?.({ event, index, fileName: file.name });
+    onkeydown?.({ event, index });
   }
 
-  function handleDblClick() {
-    ondblclick?.({ file });
+  function handleDblClick(event: MouseEvent) {
+    ondblclick?.({ event, file });
   }
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    event.stopPropagation();
     oncontextmenu?.({ event, fileName: file.name });
   }
 
@@ -178,18 +185,20 @@
   tabindex="0"
 >
   <div class="item-content" class:selected={isSelected}>
-    <div class="icon">
+    <div 
+      class="icon" 
+      style="font-size: {iconSize * 0.67}px; min-width: {iconSize}px; height: {iconSize}px;"
+    >
       {#if file.is_dir}
         📁
       {:else if isVideo}
-        <!-- Video with hover playback -->
-        <div class="video-container">
+        <div class="video-container" style="width: {iconSize}px; height: {iconSize}px;">
           {#if thumbnail}
-            <!-- Static thumbnail as poster -->
             <img 
               src={thumbnail} 
               alt={file.name} 
               class="thumbnail video-poster"
+              style="max-width: {iconSize}px; max-height: {iconSize}px;"
             />
           {:else if isLoadingThumbnail}
             <div class="loading-indicator">⏳</div>
@@ -197,7 +206,6 @@
             🎬
           {/if}
           
-          <!-- Video element for hover playback -->
           <video
             class="thumbnail video-preview"
             muted
@@ -210,7 +218,12 @@
           </video>
         </div>
       {:else if thumbnail}
-        <img src={thumbnail} alt={file.name} class="thumbnail" />
+        <img 
+          src={thumbnail} 
+          alt={file.name} 
+          class="thumbnail" 
+          style="max-width: {iconSize}px; max-height: {iconSize}px;"
+        />
       {:else if isLoadingThumbnail}
         <div class="loading-indicator">⏳</div>
       {:else}
@@ -230,6 +243,9 @@
       />
     {:else}
       <span class="label" title={file.name}>{file.name}</span>
+      {#if file.is_dir && showFolderSize && folderSize !== undefined}
+        <span class="folder-size">{formatSize(folderSize)}</span>
+      {/if}
     {/if}
   </div>
 </div>
@@ -243,8 +259,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start; /* Changed from center to flex-start */
-    padding-top: 8px; /* Add padding at top for consistent spacing */
+    justify-content: flex-start;
+    padding-top: 8px;
     cursor: default;
     color: var(--text-muted);
     text-align: center;
@@ -254,7 +270,7 @@
     user-select: none;
     -webkit-user-select: none;
     transition: opacity 0.2s, transform 0.2s;
-    overflow: visible; /* Allow label to overflow */
+    overflow: visible;
   }
 
   .grid-item.being-dragged {
@@ -268,11 +284,10 @@
 
   .grid-item.selected {
     color: var(--text-main);
-    z-index: 10; /* Ensure selected item appears above others */
-    background-color: transparent; /* No background on grid item itself */
+    z-index: 10;
+    background-color: transparent;
   }
 
-  /* Unified selection box container */
   .item-content {
     display: flex;
     flex-direction: column;
@@ -285,7 +300,7 @@
     border-radius: 4px;
     padding: 8px;
     min-width: 90px;
-    margin: -10px; /* Negative margin to compensate for padding + border (8px padding + 2px border = 10px) */
+    margin: -10px;
   }
 
   .item-content.selected .icon {
@@ -302,11 +317,10 @@
   }
 
   .grid-item.focused {
-    /* No dotted border - we'll rely on selection state */
+    /* No dotted border - rely on selection state */
   }
 
   .grid-item.selected.focused {
-    /* Don't add extra borders since icon and label have them */
     background-color: transparent;
   }
 
@@ -317,28 +331,21 @@
   }
 
   .icon {
-    font-size: 32px;
     margin-bottom: 5px;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 48px;
-    height: 48px;
   }
 
   .video-container {
     position: relative;
-    width: 48px;
-    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
-    pointer-events: auto; /* Allow pointer events for video hover */
+    pointer-events: auto;
   }
 
   .thumbnail {
-    max-width: 48px;
-    max-height: 48px;
     object-fit: cover;
     border-radius: 2px;
   }
@@ -363,8 +370,8 @@
     object-fit: cover;
     border-radius: 2px;
     z-index: 2;
-    opacity: 1 !important; /* Force visible */
-    pointer-events: auto !important; /* Allow hover events */
+    opacity: 1 !important;
+    pointer-events: auto !important;
   }
 
   .loading-indicator {
@@ -386,6 +393,12 @@
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+
+  .folder-size {
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 2px;
   }
 
   .rename-input {

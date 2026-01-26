@@ -3,13 +3,9 @@
  * Controls how files are displayed: grid, list, or details
  */
 
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 
 export type ViewMode = 'grid' | 'list' | 'details';
-
-export const viewMode = writable<ViewMode>('grid');
-
-// Sort configuration
 export type SortField = 'name' | 'size' | 'modified' | 'type';
 export type SortDirection = 'asc' | 'desc';
 
@@ -18,10 +14,34 @@ export interface SortConfig {
   direction: SortDirection;
 }
 
-export const sortConfig = writable<SortConfig>({
-  field: 'name',
-  direction: 'asc'
-});
+// Initialize from localStorage settings if available
+function getInitialViewMode(): ViewMode {
+  try {
+    const stored = localStorage.getItem('app-settings');
+    if (stored) {
+      const settings = JSON.parse(stored);
+      if (settings.fileDefaultView) return settings.fileDefaultView;
+    }
+  } catch (e) { /* ignore */ }
+  return 'grid';
+}
+
+function getInitialSortConfig(): SortConfig {
+  try {
+    const stored = localStorage.getItem('app-settings');
+    if (stored) {
+      const settings = JSON.parse(stored);
+      return {
+        field: settings.fileDefaultSortField || 'name',
+        direction: settings.fileDefaultSortDirection || 'asc'
+      };
+    }
+  } catch (e) { /* ignore */ }
+  return { field: 'name', direction: 'asc' };
+}
+
+export const viewMode = writable<ViewMode>(getInitialViewMode());
+export const sortConfig = writable<SortConfig>(getInitialSortConfig());
 
 /**
  * Toggle sort direction or change field
@@ -29,10 +49,8 @@ export const sortConfig = writable<SortConfig>({
 export function toggleSort(field: SortField) {
   sortConfig.update(config => {
     if (config.field === field) {
-      // Toggle direction
       return { field, direction: config.direction === 'asc' ? 'desc' : 'asc' };
     } else {
-      // New field, default to ascending
       return { field, direction: 'asc' };
     }
   });

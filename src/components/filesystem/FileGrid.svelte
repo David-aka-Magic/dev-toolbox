@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fileSelection, selectedFiles, focusedIndex } from './hooks/useFileSelection';
   import { fileDragDrop } from './hooks/useFileDragDrop';
+  import { settings } from '$lib/stores/settingsStore';
   import FileGridItem from './FileGridItem.svelte';
   import FileCreationDialog from './FileCreationDialog.svelte';
 
@@ -8,7 +9,9 @@
   export let isLoading: boolean = false;
   export let renamingFile: string | null = null;
   export let creationType: 'folder' | 'file' | null = null;
+  export let folderSizes: Map<string, number | null> = new Map();
 
+  // Callback props
   export let onbackgroundclick: (() => void) | undefined = undefined;
   export let onitemdblclick: ((detail: any) => void) | undefined = undefined;
   export let onitemcontextmenu: ((detail: any) => void) | undefined = undefined;
@@ -19,14 +22,18 @@
 
   let gridContainer: HTMLDivElement;
 
+  // Drag selection state
   let isDragSelecting = false;
   let dragStarted = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let dragCurrentX = 0;
   let dragCurrentY = 0;
-  // Track if we just finished a drag selection to prevent clearSelection on click
-  let justFinishedDragSelection = false;
+
+  // Calculate grid item size based on icon size setting
+  $: iconSize = $settings.fileGridIconSize;
+  $: itemWidth = Math.max(90, iconSize + 42);
+  $: itemHeight = iconSize + 60;
 
   function handleBackgroundClick(event: MouseEvent) {
     // If we just finished drag selection, don't clear - just reset the flag
@@ -39,26 +46,33 @@
     }
   }
 
-  function handleMouseDown(event: MouseEvent) {
-    if (event.target !== gridContainer) return;
-    if (event.button !== 0) return;
+  let justFinishedDragSelection = false;
 
+  function handleMouseDown(event: MouseEvent) {
+    // Allow drag selection if clicking on the grid container or empty space within it
+    const target = event.target as HTMLElement;
+    const isGridOrEmpty = target === gridContainer || target.classList.contains('grid-container');
+    
+    // Don't start drag selection if clicking on a file item
+    if (!isGridOrEmpty) return;
+    if (event.button !== 0) return;
+    
     isDragSelecting = true;
     dragStarted = false;
-    justFinishedDragSelection = false;
     
     const rect = gridContainer.getBoundingClientRect();
     dragStartX = event.clientX - rect.left + gridContainer.scrollLeft;
     dragStartY = event.clientY - rect.top + gridContainer.scrollTop;
     dragCurrentX = dragStartX;
     dragCurrentY = dragStartY;
-
+    
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   }
 
   function handleMouseMove(event: MouseEvent) {
     if (!isDragSelecting) return;
+    if (!gridContainer) return;
     
     const rect = gridContainer.getBoundingClientRect();
     dragCurrentX = event.clientX - rect.left + gridContainer.scrollLeft;
@@ -78,15 +92,17 @@
     }
   }
 
-  function handleMouseUp() {
-    // If we actually dragged to select files, set the flag to prevent clearSelection
+  function handleMouseUp(event: MouseEvent) {
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+    
+    // If we actually dragged to select files, set the flag to prevent clearSelection on click
     if (dragStarted && $selectedFiles.size > 0) {
       justFinishedDragSelection = true;
     }
+    
     isDragSelecting = false;
     dragStarted = false;
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', handleMouseUp);
   }
 
   function updateDragSelection() {
@@ -95,30 +111,33 @@
     const minY = Math.min(dragStartY, dragCurrentY);
     const maxY = Math.max(dragStartY, dragCurrentY);
 
-    fileSelection.clearSelection();
+    // Clear and rebuild selection
+    const filesToSelect: { name: string; index: number }[] = [];
 
     files.forEach((file, i) => {
-      const element = document.getElementById(`file-btn-${i}`);
-      if (!element) return;
+      const itemEl = document.getElementById(`file-btn-${i}`);
+      if (!itemEl) return;
 
-      const rect = element.getBoundingClientRect();
+      const itemRect = itemEl.getBoundingClientRect();
       const containerRect = gridContainer.getBoundingClientRect();
       
-      const itemLeft = rect.left - containerRect.left + gridContainer.scrollLeft;
-      const itemRight = itemLeft + rect.width;
-      const itemTop = rect.top - containerRect.top + gridContainer.scrollTop;
-      const itemBottom = itemTop + rect.height;
+      const itemLeft = itemRect.left - containerRect.left + gridContainer.scrollLeft;
+      const itemTop = itemRect.top - containerRect.top + gridContainer.scrollTop;
+      const itemRight = itemLeft + itemRect.width;
+      const itemBottom = itemTop + itemRect.height;
 
       const intersects = !(itemRight < minX || itemLeft > maxX || itemBottom < minY || itemTop > maxY);
       
       if (intersects) {
-        fileSelection.addToSelection(file.name, i);
+        filesToSelect.push({ name: file.name, index: i });
       }
     });
+
+    // Set selection in one operation
+    fileSelection.setSelection(new Set(filesToSelect.map(f => f.name)));
   }
 
   function handleItemClick(detail: any) {
-    // Reset the flag when clicking on items
     justFinishedDragSelection = false;
     const { event: mouseEvent, index, fileName } = detail;
     fileSelection.handleClick(mouseEvent, index, fileName, files);
@@ -197,6 +216,7 @@
   on:click={handleBackgroundClick}
   on:mousedown={handleMouseDown}
   role="presentation"
+  style="grid-template-columns: repeat(auto-fill, minmax({itemWidth}px, 1fr)); grid-auto-rows: {itemHeight}px;"
 >
   {#if isLoading && !files.length}
     <div class="loading">Loading...</div>
@@ -210,6 +230,7 @@
         isBeingDragged={$fileDragDrop.draggedFiles.includes(file.name)}
         isRenaming={renamingFile === file.name}
         renameValue={file.name}
+        folderSize={file.is_dir ? folderSizes.get(file.path) : undefined}
         onclick={handleItemClick}
         onkeydown={handleItemKeyDown}
         ondblclick={handleItemDblClick}
@@ -252,8 +273,6 @@
     overflow-y: auto;
     padding: 10px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    grid-auto-rows: 100px;
     gap: 10px;
     align-content: start;
     position: relative;
