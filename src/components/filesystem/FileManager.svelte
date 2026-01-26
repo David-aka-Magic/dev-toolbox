@@ -18,6 +18,7 @@
   import { joinPath, isImageFile, isVideoFile } from './hooks/fileUtils';
   import { clipboard } from '$lib/stores/clipboardStore';
   import { openMediaInNewWindow } from '$lib/utils/openMediaWindow';
+  import { directoryCache } from '$lib/stores/directoryCacheStore';
 
   let files: any[] = [];
   let isLoading = false;
@@ -33,21 +34,22 @@
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
 
-  // Folder size cache
   let folderSizes: Map<string, number | null> = new Map();
 
-  // Filter hidden files based on settings
+  // OPTIMIZATION: Track last loaded path to prevent duplicate loads
+  let lastLoadedPath: string | null = null;
+
   $: visibleFiles = $settings.fileShowHidden 
     ? files 
     : files.filter(f => !f.name.startsWith('.'));
 
   $: sortedFiles = sortFiles(visibleFiles, $sortConfig);
 
-  $: if ($activeTab && $activeTab.path) {
+  // OPTIMIZATION: Only load if path actually changed
+  $: if ($activeTab?.path && $activeTab.path !== lastLoadedPath) {
     loadFiles($activeTab.path);
   }
 
-  // Calculate folder sizes when setting is enabled
   $: if ($settings.fileShowFolderSize && files.length > 0) {
     calculateFolderSizes();
   }
@@ -59,15 +61,9 @@
       if (folderSizes.has(folder.path)) continue;
       
       try {
-        const folderFiles = await invoke<any[]>("read_directory", { path: folder.path });
-        
-        if (folderFiles.length > $settings.fileFolderSizeThreshold) {
-          folderSizes.set(folder.path, null);
-        } else {
-          const totalSize = await invoke<number>("get_folder_size", { path: folder.path });
-          folderSizes.set(folder.path, totalSize);
-        }
-        
+        // Use the new lazy directory size command
+        const size = await invoke<number | null>("get_directory_size", { path: folder.path });
+        folderSizes.set(folder.path, size);
         folderSizes = folderSizes;
       } catch (err) {
         folderSizes.set(folder.path, null);
@@ -76,8 +72,25 @@
     }
   }
 
-  async function loadFiles(path: string, targetSelect: string | null = null) {
+  async function loadFiles(path: string, targetSelect: string | null = null, forceRefresh: boolean = false) {
+    // OPTIMIZATION: Prevent duplicate loads for the same path
+    if (path === lastLoadedPath && !targetSelect && !forceRefresh) return;
+    
+    // OPTIMIZATION: Check cache first (unless forcing refresh)
+    if (!forceRefresh && !targetSelect) {
+      const cached = directoryCache.get(path);
+      if (cached) {
+        files = cached;
+        lastLoadedPath = path;
+        fileSelection.reset();
+        thumbnailLoader.queueThumbnails(files);
+        folderSizes = new Map();
+        return;
+      }
+    }
+
     isLoading = true;
+    lastLoadedPath = path;
     
     if (!targetSelect) {
       fileSelection.reset();
@@ -85,11 +98,14 @@
     
     renamingFile = null;
     creationType = null;
-    thumbnailLoader.clearThumbnails();
     folderSizes = new Map();
 
     try {
       files = await invoke("read_directory", { path });
+      
+      // OPTIMIZATION: Cache the directory contents
+      directoryCache.set(path, files);
+      
       thumbnailLoader.queueThumbnails(files);
 
       if (targetSelect) {
@@ -127,22 +143,25 @@
   }
 
   async function pasteFiles(targetPath?: string) {
-    const currentPath = $activeTab?.path;
-    if (!currentPath) return;
-
     const clipboardState = clipboard.getState();
     if (clipboardState.files.length === 0) return;
-
     if (isPasting) return;
+    
     isPasting = true;
-
+    const currentPath = $activeTab?.path;
     const destinationPath = targetPath || currentPath;
+    
+    if (!destinationPath) {
+      isPasting = false;
+      return;
+    }
 
     try {
       const destFiles = await invoke<any[]>("read_directory", { path: destinationPath });
-
-      for (const sourcePath of clipboardState.files) {
-        const fileName = sourcePath.split(/[\\/]/).pop()!;
+      
+      for (let i = 0; i < clipboardState.files.length; i++) {
+        const sourcePath = clipboardState.files[i];
+        const fileName = clipboardState.fileNames[i];
         
         const existsInDest = destFiles.some(f => f.name === fileName);
         
@@ -168,9 +187,18 @@
       
       if (clipboardState.operation === 'cut') {
         clipboard.clear();
+        // Invalidate source directory cache
+        if (clipboardState.sourcePath) {
+          directoryCache.invalidate(clipboardState.sourcePath);
+        }
       }
       
-      loadFiles(currentPath);
+      // Invalidate destination cache and reload
+      directoryCache.invalidate(destinationPath);
+      if (currentPath) {
+        directoryCache.invalidate(currentPath);
+        loadFiles(currentPath, undefined, true);
+      }
     } catch (err) {
       console.error("Paste error:", err);
       alert("Paste failed: " + err);
@@ -237,7 +265,8 @@
     if (!currentPath) return;
 
     if (action === 'refresh') {
-      loadFiles(currentPath);
+      directoryCache.invalidate(currentPath);
+      loadFiles(currentPath, undefined, true);
       return;
     }
 
@@ -293,7 +322,8 @@
               const deletePath = joinPath(currentPath, fileName);
               await invoke('delete_item', { path: deletePath });
             }
-            loadFiles(currentPath);
+            directoryCache.invalidate(currentPath);
+            loadFiles(currentPath, undefined, true);
           } catch (err) {
             alert('Error deleting: ' + err);
           }
@@ -412,7 +442,8 @@
     if (!currentPath) return;
 
     await fileDragDrop.handleItemDrop(dropEvent, targetFolder, currentPath, () => {
-      loadFiles(currentPath);
+      directoryCache.invalidate(currentPath);
+      loadFiles(currentPath, undefined, true);
     });
   }
 
@@ -426,7 +457,8 @@
       
       try {
         await invoke('rename_item', { path: oldPath, newName });
-        await loadFiles(currentPath!, newName);
+        directoryCache.invalidate(currentPath!);
+        await loadFiles(currentPath!, newName, true);
       } catch (err) {
         alert("Rename failed: " + err);
       }
@@ -455,7 +487,8 @@
         } else {
           await invoke('create_file', { path: currentPath, name });
         }
-        await loadFiles(currentPath, name);
+        directoryCache.invalidate(currentPath);
+        await loadFiles(currentPath, name, true);
       } catch (err) {
         alert(`Error creating ${type}: ${err}`);
       }
@@ -502,7 +535,10 @@
     if (event.key === 'F5') {
       event.preventDefault();
       const currentPath = $activeTab?.path;
-      if (currentPath) loadFiles(currentPath);
+      if (currentPath) {
+        directoryCache.invalidate(currentPath);
+        loadFiles(currentPath, undefined, true);
+      }
       return;
     }
 
@@ -522,7 +558,8 @@
               const fullPath = joinPath(currentPath, fileName);
               await invoke('delete_item', { path: fullPath });
             }
-            loadFiles(currentPath);
+            directoryCache.invalidate(currentPath);
+            loadFiles(currentPath, undefined, true);
           } catch (err) {
             alert('Error deleting: ' + err);
           }

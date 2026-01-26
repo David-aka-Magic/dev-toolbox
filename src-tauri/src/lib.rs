@@ -26,6 +26,8 @@ pub fn run() {
             files::read_file_base64,
             files::extract_video_thumbnail,
             files::generate_video_preview,
+            files::get_directory_size,
+            files::get_directory_sizes,
             
             // File Settings Commands
             file_settings::get_thumbnail_cache_size,

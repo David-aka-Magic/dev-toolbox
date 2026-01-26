@@ -11,12 +11,10 @@ pub struct FileEntry {
     name: String,
     path: String,
     is_dir: bool,
-    size: Option<u64>,      // File size in bytes (calculated recursively for directories)
-    modified: Option<u64>,  // Last modified timestamp (seconds since UNIX epoch)
+    size: Option<u64>,
+    modified: Option<u64>,
 }
 
-/// Recursively calculate the total size of a directory
-/// Returns None if the folder exceeds MAX_FILES_FOR_SIZE_CALC files (too expensive to calculate)
 const MAX_FILES_FOR_SIZE_CALC: usize = 1000;
 
 fn calculate_dir_size(path: &Path) -> Option<u64> {
@@ -27,12 +25,9 @@ fn calculate_dir_size(path: &Path) -> Option<u64> {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 *file_count += 1;
-                
-                // Bail out if we've exceeded the limit
                 if *file_count > max_files {
                     return false;
                 }
-                
                 let entry_path = entry.path();
                 if entry_path.is_dir() {
                     if !calc_recursive(&entry_path, total_size, file_count, max_files) {
@@ -49,11 +44,10 @@ fn calculate_dir_size(path: &Path) -> Option<u64> {
     if calc_recursive(path, &mut total_size, &mut file_count, MAX_FILES_FOR_SIZE_CALC) {
         Some(total_size)
     } else {
-        None // Too many files, skip size calculation
+        None
     }
 }
 
-// --- HELPER: Handle Duplicates (e.g. "File (1).txt") ---
 fn get_unique_path(path: PathBuf) -> PathBuf {
     if !path.exists() {
         return path;
@@ -67,12 +61,38 @@ fn get_unique_path(path: PathBuf) -> PathBuf {
     loop {
         let new_name = format!("{} ({}){}", file_stem, i, extension);
         let new_path = parent.join(new_name);
-        
         if !new_path.exists() {
             return new_path;
         }
         i += 1;
     }
+}
+
+fn find_ffmpeg() -> Result<String, String> {
+    if Command::new("ffmpeg")
+        .arg("-version")
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .is_ok()
+    {
+        return Ok("ffmpeg".to_string());
+    }
+    
+    let common_paths = vec![
+        "C:\\ffmpeg\\ffmpeg.exe",
+        "C:\\ffmpeg\\bin\\ffmpeg.exe",
+        "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+        "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
+    ];
+    
+    for path in common_paths {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+    
+    Err("FFmpeg not found. Please ensure FFmpeg is installed and in your PATH.".to_string())
 }
 
 #[command]
@@ -86,7 +106,6 @@ pub fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
             if let Some(name_os) = path_buf.file_name() {
                 let name = name_os.to_string_lossy().to_string();
                 
-                // Skip hidden files
                 if name.starts_with('.') {
                     continue;
                 }
@@ -94,17 +113,15 @@ pub fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
                 let is_dir = path_buf.is_dir();
                 let path_str = path_buf.to_string_lossy().to_string();
 
-                // Get metadata for size and modified time
                 let (size, modified) = match fs::metadata(&path_buf) {
                     Ok(meta) => {
-                        // Size: calculate recursively for directories (with file count limit)
+                        // OPTIMIZATION: Skip directory size calculation - fetch lazily
                         let size = if is_dir {
-                            calculate_dir_size(&path_buf)
+                            None
                         } else {
                             Some(meta.len())
                         };
                         
-                        // Modified time: convert to seconds since UNIX epoch
                         let modified = meta.modified().ok().and_then(|time| {
                             time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
                         });
@@ -125,9 +142,34 @@ pub fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
         }
     }
 
-    // Sort: directories first, then alphabetically by name
     entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     Ok(entries)
+}
+
+#[command]
+pub fn get_directory_size(path: String) -> Result<Option<u64>, String> {
+    let p = Path::new(&path);
+    if !p.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+    Ok(calculate_dir_size(p))
+}
+
+#[command]
+pub fn get_directory_sizes(paths: Vec<String>) -> Result<Vec<(String, Option<u64>)>, String> {
+    let results: Vec<(String, Option<u64>)> = paths
+        .into_iter()
+        .map(|path| {
+            let p = Path::new(&path);
+            let size = if p.is_dir() {
+                calculate_dir_size(p)
+            } else {
+                None
+            };
+            (path, size)
+        })
+        .collect();
+    Ok(results)
 }
 
 #[command]
@@ -145,7 +187,6 @@ pub fn rename_item(path: String, new_name: String) -> Result<(), String> {
     let p = Path::new(&path);
     let parent = p.parent().ok_or("Cannot rename root directory or invalid path")?;
     let new_path = parent.join(new_name);
-    
     fs::rename(path, new_path).map_err(|e| e.to_string())
 }
 
@@ -153,9 +194,7 @@ pub fn rename_item(path: String, new_name: String) -> Result<(), String> {
 pub fn create_directory(path: String, name: String) -> Result<String, String> {
     let base_path = Path::new(&path).join(name);
     let final_path = get_unique_path(base_path);
-    
     fs::create_dir_all(&final_path).map_err(|e| e.to_string())?;
-    
     Ok(final_path.file_name().unwrap().to_string_lossy().to_string())
 }
 
@@ -163,9 +202,7 @@ pub fn create_directory(path: String, name: String) -> Result<String, String> {
 pub fn create_file(path: String, name: String) -> Result<String, String> {
     let base_path = Path::new(&path).join(name);
     let final_path = get_unique_path(base_path);
-    
     fs::File::create(&final_path).map_err(|e| e.to_string())?;
-    
     Ok(final_path.file_name().unwrap().to_string_lossy().to_string())
 }
 
@@ -180,7 +217,6 @@ pub fn move_item(source: String, destination: String) -> Result<(), String> {
 
     let file_name = src_path.file_name().ok_or("Invalid source filename")?;
     let dest_path = dest_folder.join(file_name);
-
     let final_dest = get_unique_path(dest_path);
 
     fs::rename(source, final_dest).map_err(|e| e.to_string())
@@ -232,45 +268,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 
 #[command]
 pub fn read_file(path: String) -> Result<String, String> {
-    fs::read_to_string(path).map_err(|e| e.to_string())
+    fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[command]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
-    fs::write(path, content).map_err(|e| e.to_string())
+    fs::write(&path, content).map_err(|e| e.to_string())
 }
 
 #[command]
 pub fn read_file_base64(path: String) -> Result<String, String> {
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
     Ok(general_purpose::STANDARD.encode(&bytes))
-}
-
-fn find_ffmpeg() -> Result<String, String> {
-    if Command::new("ffmpeg")
-        .arg("-version")
-        .stderr(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .status()
-        .is_ok()
-    {
-        return Ok("ffmpeg".to_string());
-    }
-    
-    let common_paths = vec![
-        "C:\\ffmpeg\\ffmpeg.exe",
-        "C:\\ffmpeg\\bin\\ffmpeg.exe",
-        "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
-        "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
-    ];
-    
-    for path in common_paths {
-        if std::path::Path::new(path).exists() {
-            return Ok(path.to_string());
-        }
-    }
-    
-    Err("FFmpeg not found. Please ensure FFmpeg is installed and in your PATH.".to_string())
 }
 
 #[command]
@@ -324,7 +333,7 @@ pub fn generate_video_preview(
         "-i".to_string(), path,
         "-t".to_string(), max_duration.to_string(),
         "-vf".to_string(), format!("scale={}:-1,fps={}", resolution, fps),
-        "-an".to_string(),  // No audio
+        "-an".to_string(),
         "-c:v".to_string(), "libvpx-vp9".to_string(),
         "-b:v".to_string(), "200k".to_string(),
         "-y".to_string(),

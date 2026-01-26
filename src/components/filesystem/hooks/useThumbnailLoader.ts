@@ -1,6 +1,7 @@
 /**
  * Thumbnail loading queue system
  * Handles lazy loading of image/video thumbnails with concurrency limits
+ * OPTIMIZED: Added global cache that persists across directory changes
  */
 
 import { writable, get, derived } from 'svelte/store';
@@ -18,6 +19,10 @@ interface QueueItem {
   name: string;
 }
 
+// OPTIMIZATION: Global cache that persists across directory changes
+const globalThumbnailCache = new Map<string, string>();
+const MAX_GLOBAL_CACHE_SIZE = 500;
+
 function createThumbnailLoader() {
   const { subscribe, set, update } = writable<ThumbnailState>({
     thumbnails: new Map<string, string>(),
@@ -27,21 +32,16 @@ function createThumbnailLoader() {
   let thumbnailQueue: QueueItem[] = [];
   let activeLoads = 0;
 
-  // Get max concurrent from settings
   function getMaxConcurrent(): number {
     const currentSettings = get(settings);
     return currentSettings.fileMaxConcurrentThumbnails || 5;
   }
 
-  // Get thumbnail size from settings
   function getThumbnailSize(): number {
     const currentSettings = get(settings);
     return currentSettings.fileThumbnailSize || 48;
   }
 
-  /**
-   * Process the thumbnail queue
-   */
   async function processQueue() {
     const maxConcurrent = getMaxConcurrent();
     
@@ -54,13 +54,22 @@ function createThumbnailLoader() {
     }
   }
 
-  /**
-   * Load a single thumbnail
-   */
   async function loadThumbnail(filePath: string, fileName: string) {
     const state = get({ subscribe });
     
     if (state.loadingSet.has(fileName)) {
+      activeLoads--;
+      processQueue();
+      return;
+    }
+
+    // OPTIMIZATION: Check global cache first
+    if (globalThumbnailCache.has(filePath)) {
+      update(state => {
+        const newThumbnails = new Map(state.thumbnails);
+        newThumbnails.set(fileName, globalThumbnailCache.get(filePath)!);
+        return { ...state, thumbnails: newThumbnails };
+      });
       activeLoads--;
       processQueue();
       return;
@@ -75,25 +84,32 @@ function createThumbnailLoader() {
     try {
       let base64: string;
       let mimeType: string;
-      const thumbnailSize = getThumbnailSize();
 
       if (isVideoFile(fileName)) {
-        // Extract video thumbnail with configured size
-        base64 = await invoke<string>('extract_video_thumbnail', { 
-          path: filePath,
-          size: thumbnailSize
-        });
+        // Extract video thumbnail - Rust function only takes path
+        base64 = await invoke<string>('extract_video_thumbnail', { path: filePath });
         mimeType = 'image/png';
       } else {
-        // Load image directly (could add resizing here if needed)
+        // Load image directly
         base64 = await invoke<string>('read_file_base64', { path: filePath });
         mimeType = getImageMimeType(fileName);
       }
 
-      // Add to thumbnails map
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+
+      // OPTIMIZATION: Add to global cache
+      globalThumbnailCache.set(filePath, dataUrl);
+      
+      // Limit global cache size
+      if (globalThumbnailCache.size > MAX_GLOBAL_CACHE_SIZE) {
+        const firstKey = globalThumbnailCache.keys().next().value;
+        if (firstKey) globalThumbnailCache.delete(firstKey);
+      }
+
+      // Add to current view thumbnails
       update(state => {
         const newThumbnails = new Map(state.thumbnails);
-        newThumbnails.set(fileName, `data:${mimeType};base64,${base64}`);
+        newThumbnails.set(fileName, dataUrl);
         
         const newLoadingSet = new Set(state.loadingSet);
         newLoadingSet.delete(fileName);
@@ -106,7 +122,6 @@ function createThumbnailLoader() {
     } catch (err) {
       console.error(`Failed to load thumbnail for ${fileName}:`, err);
       
-      // Remove from loading set even on error
       update(state => {
         const newLoadingSet = new Set(state.loadingSet);
         newLoadingSet.delete(fileName);
@@ -121,42 +136,56 @@ function createThumbnailLoader() {
   return {
     subscribe,
 
-    /**
-     * Queue files for thumbnail loading
-     */
     queueThumbnails: (files: any[]) => {
-      const mediaFiles = files.filter(f => 
-        !f.is_dir && (isImageFile(f.name) || isVideoFile(f.name))
-      );
+      thumbnailQueue = [];
+      
+      // OPTIMIZATION: Restore from global cache, queue the rest
+      const restoredThumbnails = new Map<string, string>();
+      const filesToLoad: QueueItem[] = [];
+      
+      for (const file of files) {
+        if (!file.is_dir && (isImageFile(file.name) || isVideoFile(file.name))) {
+          if (globalThumbnailCache.has(file.path)) {
+            restoredThumbnails.set(file.name, globalThumbnailCache.get(file.path)!);
+          } else {
+            filesToLoad.push({ path: file.path, name: file.name });
+          }
+        }
+      }
 
-      thumbnailQueue = mediaFiles.map(f => ({
-        path: f.path,
-        name: f.name
-      }));
+      // Set restored thumbnails immediately
+      set({
+        thumbnails: restoredThumbnails,
+        loadingSet: new Set<string>()
+      });
 
+      // Queue remaining files
+      thumbnailQueue = filesToLoad;
       processQueue();
     },
 
-    /**
-     * Clear all thumbnails (when changing directory)
-     */
     clearThumbnails: () => {
       thumbnailQueue = [];
+      activeLoads = 0;
       set({
         thumbnails: new Map<string, string>(),
         loadingSet: new Set<string>()
       });
     },
 
-    /**
-     * Get current thumbnail size setting
-     */
-    getThumbnailSize
+    clearGlobalCache: () => {
+      globalThumbnailCache.clear();
+    },
+
+    getThumbnailSize,
+
+    getGlobalCacheSize: (): number => {
+      return globalThumbnailCache.size;
+    }
   };
 }
 
 export const thumbnailLoader = createThumbnailLoader();
 
-// Derived store that just exposes the thumbnails Map for backward compatibility
-// Usage: $thumbnails.get(filename) or $thumbnails.has(filename)
+// Derived store for backward compatibility
 export const thumbnails = derived(thumbnailLoader, $state => $state.thumbnails);
