@@ -9,6 +9,11 @@ interface Settings {
   
   // Editor Settings
   editorFontSize: number;
+  editorFontFamily: string;
+  editorTabSize: string;
+  editorWordWrap: 'off' | 'on' | 'wordWrapColumn';
+  editorShowLineNumbers: boolean;
+  editorShowMinimap: boolean;
   
   // File Manager Settings
   fileShowHidden: boolean;
@@ -44,6 +49,11 @@ const defaultSettings: Settings = {
   
   // Editor
   editorFontSize: 14,
+  editorFontFamily: "'Fira Code', Consolas, monospace",
+  editorTabSize: '2',
+  editorWordWrap: 'off',
+  editorShowLineNumbers: true,
+  editorShowMinimap: true,
   
   // File Manager
   fileShowHidden: false,
@@ -71,7 +81,6 @@ const defaultSettings: Settings = {
   fileThumbnailCacheSize: 500,
 };
 
-// Load from localStorage or use defaults
 const stored = localStorage.getItem('app-settings');
 const initial = stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings;
 
@@ -84,7 +93,6 @@ settings.subscribe((val) => {
   }
 });
 
-// Helper to update last path
 export function updateLastPath(path: string) {
   settings.update(s => ({ ...s, fileLastPath: path }));
 }

@@ -512,20 +512,44 @@
           <p>Settings for code editing and viewing.</p>
         </div>
 
-        <Input label="Font Family" value="'Fira Code', Consolas, monospace" />
+        <Input 
+          label="Font Family" 
+          bind:value={$settings.editorFontFamily} 
+        />
+        
         <div class="row">
-            <div class="half">
-                <Select label="Tab Size" options={tabOptions} value="2"/>
-            </div>
-            <div class="half">
-                 <Select label="Word Wrap" options={wrapOptions} value="off"/>
-            </div>
+          <div class="half">
+            <Input 
+              type="number" 
+              label="Font Size (px)" 
+              bind:value={$settings.editorFontSize} 
+            />
+          </div>
+          <div class="half">
+            <Select 
+              label="Tab Size" 
+              options={tabOptions} 
+              bind:value={$settings.editorTabSize}
+            />
+          </div>
         </div>
-        <Checkbox label="Show Line Numbers" checked={true} />
-        <Checkbox label="Show Minimap" checked={true} />
+        
+        <Select 
+          label="Word Wrap" 
+          options={wrapOptions} 
+          bind:value={$settings.editorWordWrap}
+        />
+        
+        <Checkbox 
+          label="Show Line Numbers" 
+          bind:checked={$settings.editorShowLineNumbers} 
+        />
+        
+        <Checkbox 
+          label="Show Minimap" 
+          bind:checked={$settings.editorShowMinimap} 
+        />
       </section>
-
-      <div class="spacer-lg"></div>
     </div>
   </div>
 

@@ -14,6 +14,7 @@
   import 'highlight.js/styles/vs2015.css';
   import { invoke } from '@tauri-apps/api/core';
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
+  import { settings } from '$lib/stores/settingsStore';
   import FilePickerModal from './FilePickerModal.svelte';
 
   const lowlight = createLowlight(common);
@@ -155,71 +156,45 @@
 <div class="editor-container">
   <div class="toolbar">
     <div class="toolbar-section">
-      <button on:click={openFile} title="Open File">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-        </svg>
-      </button>
-      <button on:click={saveFile} title="Save File" class:active={activeTab?.isDirty}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-          <polyline points="17 21 17 13 7 13 7 21"/>
-          <polyline points="7 3 7 8 15 8"/>
-        </svg>
-      </button>
+      <button onclick={openFile} title="Open File">Open</button>
+      <button onclick={saveFile} title="Save File">Save</button>
     </div>
 
     <div class="divider"></div>
 
     <div class="toolbar-section">
-      <button on:click={toggleBold} class:active={editor?.isActive('bold')} title="Bold">
-        <strong>B</strong>
-      </button>
-      <button on:click={toggleItalic} class:active={editor?.isActive('italic')} title="Italic">
-        <em>I</em>
-      </button>
-      <button on:click={() => toggleHeading(1)} class:active={editor?.isActive('heading', { level: 1 })} title="Heading 1">
-        H1
-      </button>
-      <button on:click={() => toggleHeading(2)} class:active={editor?.isActive('heading', { level: 2 })} title="Heading 2">
-        H2
-      </button>
-      <button on:click={toggleCodeBlock} class:active={editor?.isActive('codeBlock')} title="Code Block">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="16 18 22 12 16 6"/>
-          <polyline points="8 6 2 12 8 18"/>
-        </svg>
-      </button>
+      <button onclick={toggleBold} title="Bold">B</button>
+      <button onclick={toggleItalic} title="Italic">I</button>
+      <button onclick={toggleCodeBlock} title="Code Block">{`</>`}</button>
     </div>
 
     <div class="divider"></div>
 
     <div class="toolbar-section">
-      <button on:click={toggleBulletList} class:active={editor?.isActive('bulletList')} title="Bullet List">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="8" y1="6" x2="21" y2="6"/>
-          <line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/>
-          <line x1="3" y1="18" x2="3.01" y2="18"/>
-        </svg>
-      </button>
-      <button on:click={toggleOrderedList} class:active={editor?.isActive('orderedList')} title="Numbered List">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="10" y1="6" x2="21" y2="6"/>
-          <line x1="10" y1="12" x2="21" y2="12"/>
-          <line x1="10" y1="18" x2="21" y2="18"/>
-          <path d="M4 6h1v4"/>
-          <path d="M4 10h2"/>
-          <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>
-        </svg>
-      </button>
+      <button onclick={() => toggleHeading(1)} title="Heading 1">H1</button>
+      <button onclick={() => toggleHeading(2)} title="Heading 2">H2</button>
+      <button onclick={() => toggleHeading(3)} title="Heading 3">H3</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="toolbar-section">
+      <button onclick={toggleBulletList} title="Bullet List">•</button>
+      <button onclick={toggleOrderedList} title="Ordered List">1.</button>
     </div>
   </div>
 
   <div class="editor-wrapper">
-    <div bind:this={element} class="editor"></div>
+    <div 
+      class="editor" 
+      bind:this={element}
+      style="
+        font-family: {$settings.editorFontFamily};
+        font-size: {$settings.editorFontSize}px;
+        white-space: {$settings.editorWordWrap === 'on' ? 'pre-wrap' : 'pre'};
+      "
+      class:hide-line-numbers={!$settings.editorShowLineNumbers}
+    ></div>
   </div>
 </div>
 
@@ -316,6 +291,10 @@
     line-height: 1.4;
   }
 
+  :global(.editor.hide-line-numbers .ProseMirror) {
+    padding-left: 16px;
+  }
+
   :global(.editor .ProseMirror > *) {
     position: relative;
     counter-increment: line;
@@ -323,7 +302,7 @@
     padding: 0;
   }
 
-  :global(.editor .ProseMirror > *::before) {
+  :global(.editor:not(.hide-line-numbers) .ProseMirror > *::before) {
     content: counter(line);
     position: absolute;
     left: -50px;
