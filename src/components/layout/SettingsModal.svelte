@@ -506,6 +506,7 @@
       <hr class="divider" />
 
       <!-- EDITOR -->
+      <!-- EDITOR -->
       <section id="section-editor">
         <div class="section-header">
           <h3>Text Editor</h3>
@@ -549,6 +550,21 @@
           label="Show Minimap" 
           bind:checked={$settings.editorShowMinimap} 
         />
+        
+        <Checkbox 
+          label="Auto-Save" 
+          bind:checked={$settings.editorAutoSave} 
+        />
+        
+        {#if $settings.editorAutoSave}
+          <div class="indent-group">
+            <Input 
+              type="number" 
+              label="Auto-Save Interval (seconds)" 
+              bind:value={$settings.editorAutoSaveInterval} 
+            />
+          </div>
+        {/if}
       </section>
     </div>
   </div>

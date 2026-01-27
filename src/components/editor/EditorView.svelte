@@ -15,7 +15,11 @@
   import { invoke } from '@tauri-apps/api/core';
   import { editorTabs, activeEditorTabId } from '$lib/stores/editorStore';
   import { settings } from '$lib/stores/settingsStore';
+  import { recentFiles } from '$lib/stores/recentFileStore';
   import FilePickerModal from './FilePickerModal.svelte';
+  import EditorSidebar from './/EditorSidebar.svelte';
+  import EditorStatusBar from './EditorStatusBar.svelte';
+  import CommandPalette from './CommandPalette.svelte';
 
   const lowlight = createLowlight(common);
   
@@ -31,6 +35,11 @@
   let editor: Editor;
   let showOpenDialog = false;
   let showSaveDialog = false;
+  let showCommandPalette = false;
+  let showSidebar = true;
+  let saveStatus: 'saved' | 'saving' | 'unsaved' = 'saved';
+  let autoSaveInterval: number;
+  let currentLine = 1;
   
   $: activeTab = $editorTabs.find(t => t.id === $activeEditorTabId);
 
@@ -51,6 +60,12 @@
         attributes: {
           class: 'editor-content',
         },
+        handleDOMEvents: {
+          dblclick: (view, event) => {
+            selectWord(event);
+            return true;
+          }
+        }
       },
       onUpdate: ({ editor }) => {
         if (activeTab) {
@@ -62,21 +77,114 @@
                 : tab
             )
           );
+          saveStatus = 'unsaved';
         }
+        updateCurrentLine();
       },
+      onSelectionUpdate: () => {
+        updateCurrentLine();
+      }
     });
+    
+    // Auto-save setup
+    autoSaveInterval = window.setInterval(() => {
+      if (activeTab?.isDirty && $settings.editorAutoSave) {
+        autoSave();
+      }
+    }, $settings.editorAutoSaveInterval * 1000);
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', handleGlobalKeydown);
   });
 
   onDestroy(() => {
     if (editor) {
       editor.destroy();
     }
+    if (autoSaveInterval) {
+      clearInterval(autoSaveInterval);
+    }
+    document.removeEventListener('keydown', handleGlobalKeydown);
   });
 
   $: if (editor && activeTab) {
     const currentContent = editor.getHTML();
     if (currentContent !== activeTab.content) {
       editor.commands.setContent(activeTab.content);
+      saveStatus = activeTab.isDirty ? 'unsaved' : 'saved';
+    }
+  }
+  
+  function updateCurrentLine() {
+    if (!editor) return;
+    const { from } = editor.state.selection;
+    const text = editor.getText();
+    const beforeCursor = text.substring(0, from);
+    currentLine = (beforeCursor.match(/\n/g) || []).length + 1;
+  }
+  
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    // Command Palette
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      showCommandPalette = !showCommandPalette;
+      return;
+    }
+    
+    // Toggle Sidebar
+    if (e.ctrlKey && e.key === 'b') {
+      e.preventDefault();
+      showSidebar = !showSidebar;
+      return;
+    }
+    
+    // Save
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      saveFile();
+      return;
+    }
+    
+    // Open
+    if (e.ctrlKey && e.key === 'o') {
+      e.preventDefault();
+      openFile();
+      return;
+    }
+  }
+  
+  function handleCommand(event: CustomEvent) {
+    const { action } = event.detail;
+    
+    switch(action) {
+      case 'save':
+        saveFile();
+        break;
+      case 'open':
+        openFile();
+        break;
+      case 'toggleSidebar':
+        showSidebar = !showSidebar;
+        break;
+    }
+  }
+  
+  function selectWord(event: MouseEvent) {
+    if (!editor) return;
+    const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+    if (!pos) return;
+    
+    const { doc } = editor.state;
+    const text = doc.textBetween(0, doc.content.size);
+    
+    let start = pos.pos;
+    let end = pos.pos;
+    
+    while (start > 0 && /\w/.test(text[start - 1])) start--;
+    while (end < text.length && /\w/.test(text[end])) end++;
+    
+    if (start < end) {
+      editor.commands.setTextSelection({ from: start, to: end });
     }
   }
 
@@ -111,6 +219,33 @@
       
       editorTabs.update(tabs => [...tabs, newTab]);
       activeEditorTabId.set(newTab.id);
+      
+      // Add to recent files
+      recentFiles.addFile(filePath, fileName);
+      saveStatus = 'saved';
+    } catch (err) {
+      alert(`Failed to open file: ${err}`);
+    }
+  }
+  
+  async function handleRecentFileOpen(event: CustomEvent) {
+    const { path, name } = event.detail;
+    
+    try {
+      const content = await invoke<string>('read_file', { path });
+      
+      const newTab = {
+        id: crypto.randomUUID(),
+        name,
+        path,
+        content: `<p>${content.replace(/\n/g, '</p><p>')}</p>`,
+        isDirty: false
+      };
+      
+      editorTabs.update(tabs => [...tabs, newTab]);
+      activeEditorTabId.set(newTab.id);
+      recentFiles.addFile(path, name);
+      saveStatus = 'saved';
     } catch (err) {
       alert(`Failed to open file: ${err}`);
     }
@@ -125,6 +260,28 @@
       showSaveDialog = true;
     }
   }
+  
+  async function autoSave() {
+    if (!activeTab || !activeTab.path) return;
+    saveStatus = 'saving';
+    
+    try {
+      const plainText = editor?.getText() || '';
+      await invoke('write_file', { path: activeTab.path, content: plainText });
+      
+      editorTabs.update(tabs => 
+        tabs.map(tab => 
+          tab.id === $activeEditorTabId
+            ? { ...tab, isDirty: false }
+            : tab
+        )
+      );
+      saveStatus = 'saved';
+    } catch (err) {
+      console.error('Auto-save failed:', err);
+      saveStatus = 'unsaved';
+    }
+  }
 
   async function handleSaveSelect(event: CustomEvent<string>) {
     showSaveDialog = false;
@@ -133,6 +290,8 @@
 
   async function saveToPath(filePath: string) {
     if (!activeTab) return;
+    
+    saveStatus = 'saving';
 
     try {
       const plainText = editor?.getText() || '';
@@ -146,57 +305,107 @@
             : tab
         )
       );
-      alert('File saved!');
+      
+      // Add to recent files
+      recentFiles.addFile(filePath, fileName);
+      saveStatus = 'saved';
     } catch (err) {
       alert(`Failed to save file: ${err}`);
+      saveStatus = 'unsaved';
     }
   }
 </script>
 
-<div class="editor-container">
-  <div class="toolbar">
-    <div class="toolbar-section">
-      <button onclick={openFile} title="Open File">Open</button>
-      <button onclick={saveFile} title="Save File">Save</button>
+<div class="editor-layout">
+  <div class="editor-container">
+    <div class="toolbar">
+      <div class="toolbar-section">
+        <button onclick={openFile} title="Open File (Ctrl+O)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+        </button>
+        <button onclick={saveFile} title="Save File (Ctrl+S)" class:active={activeTab?.isDirty}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+        </button>
+        <button onclick={() => showSidebar = !showSidebar} title="Toggle Sidebar (Ctrl+B)" class:active={showSidebar}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <line x1="9" y1="3" x2="9" y2="21"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="toolbar-section">
+        <button onclick={toggleBold} class:active={editor?.isActive('bold')} title="Bold (Ctrl+B)">
+          <strong>B</strong>
+        </button>
+        <button onclick={toggleItalic} class:active={editor?.isActive('italic')} title="Italic (Ctrl+I)">
+          <em>I</em>
+        </button>
+        <button onclick={() => toggleHeading(1)} class:active={editor?.isActive('heading', { level: 1 })} title="Heading 1">
+          H1
+        </button>
+        <button onclick={() => toggleHeading(2)} class:active={editor?.isActive('heading', { level: 2 })} title="Heading 2">
+          H2
+        </button>
+        <button onclick={toggleCodeBlock} class:active={editor?.isActive('codeBlock')} title="Code Block">
+          {`</>`}
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="toolbar-section">
+        <button onclick={toggleBulletList} class:active={editor?.isActive('bulletList')} title="Bullet List">•</button>
+        <button onclick={toggleOrderedList} class:active={editor?.isActive('orderedList')} title="Numbered List">1.</button>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="toolbar-section">
+        <button onclick={() => showCommandPalette = true} title="Command Palette (Ctrl+K)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <div class="divider"></div>
-
-    <div class="toolbar-section">
-      <button onclick={toggleBold} title="Bold">B</button>
-      <button onclick={toggleItalic} title="Italic">I</button>
-      <button onclick={toggleCodeBlock} title="Code Block">{`</>`}</button>
+    <div class="editor-wrapper">
+      <div 
+        class="editor" 
+        bind:this={element}
+        style="
+          font-family: {$settings.editorFontFamily};
+          font-size: {$settings.editorFontSize}px;
+          white-space: {$settings.editorWordWrap === 'on' ? 'pre-wrap' : 'pre'};
+        "
+        class:hide-line-numbers={!$settings.editorShowLineNumbers}
+      ></div>
     </div>
-
-    <div class="divider"></div>
-
-    <div class="toolbar-section">
-      <button onclick={() => toggleHeading(1)} title="Heading 1">H1</button>
-      <button onclick={() => toggleHeading(2)} title="Heading 2">H2</button>
-      <button onclick={() => toggleHeading(3)} title="Heading 3">H3</button>
-    </div>
-
-    <div class="divider"></div>
-
-    <div class="toolbar-section">
-      <button onclick={toggleBulletList} title="Bullet List">•</button>
-      <button onclick={toggleOrderedList} title="Ordered List">1.</button>
-    </div>
+    
+    <EditorStatusBar 
+      {editor} 
+      fileName={activeTab?.name || 'Untitled'}
+      filePath={activeTab?.path || ''}
+      {saveStatus}
+    />
   </div>
-
-  <div class="editor-wrapper">
-    <div 
-      class="editor" 
-      bind:this={element}
-      style="
-        font-family: {$settings.editorFontFamily};
-        font-size: {$settings.editorFontSize}px;
-        white-space: {$settings.editorWordWrap === 'on' ? 'pre-wrap' : 'pre'};
-      "
-      class:hide-line-numbers={!$settings.editorShowLineNumbers}
-    ></div>
-  </div>
+  
+  {#if showSidebar}
+    <EditorSidebar on:openfile={handleRecentFileOpen} />
+  {/if}
 </div>
+
+<CommandPalette bind:open={showCommandPalette} on:command={handleCommand} />
 
 {#if showOpenDialog}
   <FilePickerModal 
@@ -215,9 +424,16 @@
 {/if}
 
 <style>
+  .editor-layout {
+    display: flex;
+    height: 100%;
+    background: var(--bg-main);
+  }
+  
   .editor-container {
     display: flex;
     flex-direction: column;
+    flex: 1;
     height: 100%;
     background: var(--bg-main);
   }

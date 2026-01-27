@@ -21,6 +21,12 @@
   --tab-active-bg: #1e1e1e;
   --tab-active-fg: #ffffff;
   --tab-active-border: #3b82f6;
+  
+  /* Scrollbar Colors */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-thumb-hover: #52525b;
+  --scrollbar-thumb-active: #71717a;
 }
 
 /* LIGHT THEME OVERRIDES */
@@ -44,6 +50,12 @@
   --tab-active-bg: #ffffff;
   --tab-active-fg: #000000;
   --tab-active-border: #2563eb;
+  
+  /* Scrollbar Colors */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-thumb-hover: #9ca3af;
+  --scrollbar-thumb-active: #6b7280;
 }
 
 :root[data-theme="dracula"] {
@@ -66,6 +78,12 @@
   --tab-active-bg: #282a36;
   --tab-active-fg: #50fa7b;
   --tab-active-border: #ff79c6;
+  
+  /* Scrollbar Colors */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #44475a;
+  --scrollbar-thumb-hover: #6272a4;
+  --scrollbar-thumb-active: #bd93f9;
 }
 
 /* MONOKAI THEME */
@@ -89,6 +107,12 @@
   --tab-active-bg: #272822;
   --tab-active-fg: #f8f8f2;
   --tab-active-border: #a6e22e;
+  
+  /* Scrollbar Colors */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #49483e;
+  --scrollbar-thumb-hover: #75715e;
+  --scrollbar-thumb-active: #a6e22e;
 }
 
 /* GLOBAL RESET */
@@ -101,4 +125,86 @@ body {
   overflow: hidden; /* App shouldn't have body scrollbars */
 }
 
-button { font-family: inherit; }
+button { 
+  font-family: inherit; 
+}
+
+/* ===============================================
+   GLOBAL CUSTOM SCROLLBAR STYLES
+   =============================================== */
+
+/* WebKit Browsers (Chrome, Safari, Edge, Opera) */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Scrollbar Corner (when both scrollbars are present) */
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Thin scrollbar variant for specific elements */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+}
+
+/* Hidden scrollbar variant */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Hover-only scrollbar variant */
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}

@@ -14,6 +14,8 @@ interface Settings {
   editorWordWrap: 'off' | 'on' | 'wordWrapColumn';
   editorShowLineNumbers: boolean;
   editorShowMinimap: boolean;
+  editorAutoSave: boolean;
+  editorAutoSaveInterval: number;
   
   // File Manager Settings
   fileShowHidden: boolean;
@@ -54,6 +56,8 @@ const defaultSettings: Settings = {
   editorWordWrap: 'off',
   editorShowLineNumbers: true,
   editorShowMinimap: true,
+  editorAutoSave: true,
+  editorAutoSaveInterval: 3,
   
   // File Manager
   fileShowHidden: false,
