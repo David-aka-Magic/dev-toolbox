@@ -6,6 +6,9 @@ use serde::Serialize;
 use tauri::command;
 use base64::{Engine as _, engine::general_purpose};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[derive(Serialize, Debug)]
 pub struct FileEntry {
     name: String,
@@ -13,6 +16,14 @@ pub struct FileEntry {
     is_dir: bool,
     size: Option<u64>,
     modified: Option<u64>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DriveInfo {
+    letter: String,
+    path: String,
+    label: Option<String>,
+    drive_type: String,
 }
 
 const MAX_FILES_FOR_SIZE_CALC: usize = 1000;
@@ -69,13 +80,18 @@ fn get_unique_path(path: PathBuf) -> PathBuf {
 }
 
 fn find_ffmpeg() -> Result<String, String> {
-    if Command::new("ffmpeg")
-        .arg("-version")
+    let mut check_cmd = Command::new("ffmpeg");
+    check_cmd.arg("-version")
         .stderr(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .status()
-        .is_ok()
+        .stdout(std::process::Stdio::null());
+    
+    #[cfg(target_os = "windows")]
     {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        check_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    if check_cmd.status().is_ok() {
         return Ok("ffmpeg".to_string());
     }
     
@@ -93,6 +109,95 @@ fn find_ffmpeg() -> Result<String, String> {
     }
     
     Err("FFmpeg not found. Please ensure FFmpeg is installed and in your PATH.".to_string())
+}
+
+fn create_ffmpeg_command(ffmpeg_path: &str) -> Command {
+    let mut cmd = Command::new(ffmpeg_path);
+    
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    cmd
+}
+
+#[command]
+pub fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
+    let mut drives = Vec::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        for letter in b'A'..=b'Z' {
+            let drive_letter = (letter as char).to_string();
+            let drive_path = format!("{}:\\", drive_letter);
+            
+            if Path::new(&drive_path).exists() {
+                let mut cmd = Command::new("cmd");
+                cmd.args(["/C", "vol", &drive_path])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null());
+                
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                
+                let label = if let Ok(output) = cmd.output() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    output_str.lines()
+                        .find(|line| line.contains("Volume in drive"))
+                        .and_then(|line| {
+                            line.split("is").nth(1).map(|s| s.trim().to_string())
+                        })
+                        .filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                
+                let drive_type = get_drive_type(&drive_path);
+                
+                drives.push(DriveInfo {
+                    letter: drive_letter,
+                    path: drive_path,
+                    label,
+                    drive_type,
+                });
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        drives.push(DriveInfo {
+            letter: "/".to_string(),
+            path: "/".to_string(),
+            label: Some("Root".to_string()),
+            drive_type: "fixed".to_string(),
+        });
+    }
+    
+    Ok(drives)
+}
+
+#[cfg(target_os = "windows")]
+fn get_drive_type(path: &str) -> String {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsStr;
+    
+    let path_wide: Vec<u16> = OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    unsafe {
+        match windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(path_wide.as_ptr()) {
+            2 => "removable".to_string(),
+            3 => "fixed".to_string(),
+            4 => "network".to_string(),
+            5 => "cdrom".to_string(),
+            _ => "unknown".to_string(),
+        }
+    }
 }
 
 #[command]
@@ -115,7 +220,6 @@ pub fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
                 let (size, modified) = match fs::metadata(&path_buf) {
                     Ok(meta) => {
-                        // OPTIMIZATION: Skip directory size calculation - fetch lazily
                         let size = if is_dir {
                             None
                         } else {
@@ -191,25 +295,22 @@ pub fn rename_item(path: String, new_name: String) -> Result<(), String> {
 }
 
 #[command]
-pub fn create_directory(path: String, name: String) -> Result<String, String> {
-    let base_path = Path::new(&path).join(name);
-    let final_path = get_unique_path(base_path);
-    fs::create_dir_all(&final_path).map_err(|e| e.to_string())?;
-    Ok(final_path.file_name().unwrap().to_string_lossy().to_string())
+pub fn create_directory(path: String) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn create_file(path: String, name: String) -> Result<String, String> {
-    let base_path = Path::new(&path).join(name);
-    let final_path = get_unique_path(base_path);
-    fs::File::create(&final_path).map_err(|e| e.to_string())?;
-    Ok(final_path.file_name().unwrap().to_string_lossy().to_string())
+pub fn create_file(path: String) -> Result<(), String> {
+    if Path::new(&path).exists() {
+        return Err("File already exists".to_string());
+    }
+    fs::write(path, "").map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn move_item(source: String, destination: String) -> Result<(), String> {
-    let src_path = Path::new(&source);
-    let dest_folder = Path::new(&destination);
+pub fn move_item(src: String, dest: String) -> Result<(), String> {
+    let src_path = Path::new(&src);
+    let dest_folder = Path::new(&dest);
     
     if !src_path.exists() || !dest_folder.is_dir() {
         return Err("Invalid source or destination".to_string());
@@ -219,13 +320,13 @@ pub fn move_item(source: String, destination: String) -> Result<(), String> {
     let dest_path = dest_folder.join(file_name);
     let final_dest = get_unique_path(dest_path);
 
-    fs::rename(source, final_dest).map_err(|e| e.to_string())
+    fs::rename(src, final_dest).map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn copy_item(source: String, destination: String, new_name: Option<String>) -> Result<(), String> {
-    let src_path = Path::new(&source);
-    let dest_folder = Path::new(&destination);
+pub fn copy_item(src: String, dest: String, new_name: Option<String>) -> Result<(), String> {
+    let src_path = Path::new(&src);
+    let dest_folder = Path::new(&dest);
     
     if !src_path.exists() || !dest_folder.is_dir() {
         return Err("Invalid source or destination".to_string());
@@ -291,7 +392,7 @@ pub fn extract_video_thumbnail(path: String) -> Result<String, String> {
     
     let temp_output = temp_dir.join(format!("thumb_{}.png", uuid::Uuid::new_v4()));
     
-    let output = Command::new(&ffmpeg_path)
+    let output = create_ffmpeg_command(&ffmpeg_path)
         .args([
             "-i", &path,
             "-vframes", "1",
@@ -345,7 +446,7 @@ pub fn generate_video_preview(
         args.insert(1, "auto".to_string());
     }
     
-    let output = Command::new(&ffmpeg_path)
+    let output = create_ffmpeg_command(&ffmpeg_path)
         .args(&args)
         .stderr(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

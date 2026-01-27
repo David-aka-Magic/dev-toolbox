@@ -1,93 +1,63 @@
 import { writable, derived, get } from 'svelte/store';
-import { browser } from '$app/environment';
 
-export interface FileTab {
+interface FileTab {
     id: string;
-    name: string;
     path: string;
+    name: string;
     history: string[];
     historyIndex: number;
+    refreshCounter?: number;
 }
 
-// Get initial path from settings
-function getInitialPath(): string {
-    if (!browser) return 'C:\\';
-    
-    try {
-        const stored = localStorage.getItem('app-settings');
-        if (stored) {
-            const settings = JSON.parse(stored);
-            
-            // If remember last path is enabled and we have a last path
-            if (settings.fileRememberLastPath && settings.fileLastPath) {
-                return settings.fileLastPath;
-            }
-            
-            // Otherwise use default start path
-            if (settings.fileDefaultStartPath) {
-                return settings.fileDefaultStartPath;
-            }
-        }
-    } catch (e) {
-        console.error('Failed to load initial path from settings:', e);
-    }
-    
-    return 'C:\\';
+interface FileTabState {
+    tabs: FileTab[];
+    activeId: string;
 }
 
-function createInitialTab(): FileTab {
-    const initialPath = getInitialPath();
-    return {
-        id: crypto.randomUUID(),
-        name: initialPath.split(/[\\/]/).filter(p => p).pop() || 'Drive',
-        path: initialPath,
-        history: [initialPath],
-        historyIndex: 0
-    };
+function saveLastPath(path: string) {
+    localStorage.setItem('lastFilePath', path);
 }
 
-const initialTab = createInitialTab();
+function loadLastPath(): string {
+    return localStorage.getItem('lastFilePath') || 'C:\\';
+}
 
 function createFileTabStore() {
-    const { subscribe, update } = writable<{ tabs: FileTab[], activeId: string }>({
+    const initialPath = loadLastPath();
+    const initialTab: FileTab = {
+        id: crypto.randomUUID(),
+        path: initialPath,
+        name: initialPath.split(/[\\/]/).filter(p => p).pop() || 'Drive',
+        history: [initialPath],
+        historyIndex: 0,
+        refreshCounter: 0
+    };
+
+    const { subscribe, set, update } = writable<FileTabState>({
         tabs: [initialTab],
         activeId: initialTab.id
     });
 
-    // Helper to save last path to settings
-    function saveLastPath(path: string) {
-        if (!browser) return;
-        
-        try {
-            const stored = localStorage.getItem('app-settings');
-            if (stored) {
-                const settings = JSON.parse(stored);
-                if (settings.fileRememberLastPath) {
-                    settings.fileLastPath = path;
-                    localStorage.setItem('app-settings', JSON.stringify(settings));
-                }
-            }
-        } catch (e) {
-            console.error('Failed to save last path:', e);
-        }
-    }
-
     return {
         subscribe,
-        
-        addTab: (startPath: string = 'C:\\') => update(state => {
+
+        addTab: (path?: string) => update(state => {
+            const newPath = path || loadLastPath();
             const newTab: FileTab = {
                 id: crypto.randomUUID(),
-                name: startPath.split('\\').pop() || 'Drive',
-                path: startPath,
-                history: [startPath],
-                historyIndex: 0
+                path: newPath,
+                name: newPath.split(/[\\/]/).filter(p => p).pop() || 'Drive',
+                history: [newPath],
+                historyIndex: 0,
+                refreshCounter: 0
             };
-            return { ...state, tabs: [...state.tabs, newTab], activeId: newTab.id };
+            return {
+                tabs: [...state.tabs, newTab],
+                activeId: newTab.id
+            };
         }),
 
         closeTab: (id: string) => update(state => {
-            if (state.tabs.length === 1) return state;
             const remaining = state.tabs.filter(t => t.id !== id);
             let newActiveId = state.activeId;
             if (id === state.activeId) {
@@ -99,7 +69,6 @@ function createFileTabStore() {
         setActive: (id: string) => update(state => ({ ...state, activeId: id })),
 
         updateActivePath: (newPath: string) => update(state => {
-            // Save to settings
             saveLastPath(newPath);
             
             return {
@@ -114,6 +83,21 @@ function createFileTabStore() {
                             name: newPath.split(/[\\/]/).filter(p=>p).pop() || 'Drive', 
                             history: newHistory,
                             historyIndex: newHistory.length - 1
+                        };
+                    }
+                    return tab;
+                })
+            };
+        }),
+
+        refreshCurrentPath: () => update(state => {
+            return {
+                ...state,
+                tabs: state.tabs.map(tab => {
+                    if (tab.id === state.activeId) {
+                        return { 
+                            ...tab,
+                            refreshCounter: (tab.refreshCounter || 0) + 1
                         };
                     }
                     return tab;
@@ -182,7 +166,6 @@ function createFileTabStore() {
 
 export const fileTabs = createFileTabStore();
 
-// Derived store for active tab
 export const activeTab = derived(fileTabs, $store => 
     $store.tabs.find(t => t.id === $store.activeId)
 );

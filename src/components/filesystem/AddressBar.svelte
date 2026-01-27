@@ -37,7 +37,6 @@
   }
   function handleBlur() { setTimeout(() => { isInputMode = false; }, 150); }
 
-  // Breadcrumb drag & drop handlers
   function handleCrumbDragEnter(event: DragEvent, index: number) {
     const state = $fileDragDrop;
     if (!state.draggedFile) return;
@@ -76,7 +75,6 @@
     
     if (!currentPath) return;
     
-    // Don't drop into the same folder
     if (destPath === currentPath) {
       console.log("⚠️ Cannot drop into the same folder");
       return;
@@ -86,22 +84,24 @@
 
     try {
       const { invoke } = await import('@tauri-apps/api/core');
+      const { directoryCache } = await import('$lib/stores/directoryCacheStore');
       
       for (const fileName of state.draggedFiles) {
-        const sourcePath = state.draggedFilePaths.get(fileName) || `${currentPath}\\${fileName}`;
+        const sourcePath = `${currentPath}\\${fileName}`;
         
-        // Safety check: don't move a folder into its own subdirectory
         if (destPath.startsWith(sourcePath + '\\') || destPath.startsWith(sourcePath + '/')) {
           alert(`Cannot move "${fileName}" into its own subdirectory`);
           continue;
         }
         
         console.log(`📦 Moving: ${sourcePath} -> ${destPath}`);
-        await invoke('move_item', { source: sourcePath, destination: destPath });
+        await invoke('move_item', { src: sourcePath, dest: destPath });
       }
       
-      // Refresh the current directory
-      fileTabs.updateActivePath(currentPath);
+      directoryCache.invalidate(currentPath);
+      directoryCache.invalidate(destPath);
+      window.dispatchEvent(new CustomEvent('force-file-refresh'));
+      fileDragDrop.handleDragEnd();
     } catch (err) {
       console.error("❌ Move error:", err);
       alert("Move failed: " + err);

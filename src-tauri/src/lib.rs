@@ -8,12 +8,10 @@ pub fn run() {
         .manage(terminal::TerminalState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            // Terminal Commands
             terminal::spawn_terminal,
             terminal::write_to_terminal,
             terminal::resize_terminal,
             
-            // File Commands
             files::read_directory,
             files::delete_item,
             files::rename_item,
@@ -28,8 +26,8 @@ pub fn run() {
             files::generate_video_preview,
             files::get_directory_size,
             files::get_directory_sizes,
+            files::get_available_drives,
             
-            // File Settings Commands
             file_settings::get_thumbnail_cache_size,
             file_settings::clear_thumbnail_cache,
             file_settings::get_folder_size,

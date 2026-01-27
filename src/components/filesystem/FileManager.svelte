@@ -6,6 +6,7 @@
   import { viewMode, sortConfig, sortFiles } from '$lib/stores/viewModeStore';
   import { settings } from '$lib/stores/settingsStore';
   import { tick } from "svelte";
+  import { onMount, onDestroy } from 'svelte';
 
   import FileGrid from './FileGrid.svelte';
   import FileListView from './FileListView.svelte';
@@ -36,8 +37,10 @@
 
   let folderSizes: Map<string, number | null> = new Map();
 
-  // OPTIMIZATION: Track last loaded path to prevent duplicate loads
   let lastLoadedPath: string | null = null;
+  let lastRefreshCounter: number | undefined = undefined;
+  let forceRefreshListener: (() => void) | null = null;
+
 
   $: visibleFiles = $settings.fileShowHidden 
     ? files 
@@ -45,15 +48,32 @@
 
   $: sortedFiles = sortFiles(visibleFiles, $sortConfig);
 
-  // OPTIMIZATION: Only load if path actually changed
-  $: if ($activeTab?.path && $activeTab.path !== lastLoadedPath) {
-    loadFiles($activeTab.path);
+  $: if ($activeTab?.path && ($activeTab.path !== lastLoadedPath || $activeTab.refreshCounter !== lastRefreshCounter)) {
+      loadFiles($activeTab.path);
+      lastRefreshCounter = $activeTab.refreshCounter;
   }
 
   $: if ($settings.fileShowFolderSize && files.length > 0) {
     calculateFolderSizes();
   }
 
+  onMount(() => {
+    forceRefreshListener = () => {
+      const currentPath = $activeTab?.path;
+      if (currentPath) {
+        directoryCache.invalidate(currentPath);
+        loadFiles(currentPath, undefined, true);
+      }
+    };
+    window.addEventListener('force-file-refresh', forceRefreshListener);
+  });
+  
+  onDestroy(() => {
+    if (forceRefreshListener) {
+      window.removeEventListener('force-file-refresh', forceRefreshListener);
+    }
+  });
+  
   async function calculateFolderSizes() {
     const folders = files.filter(f => f.is_dir);
     
