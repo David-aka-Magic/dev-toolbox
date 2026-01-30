@@ -1,7 +1,10 @@
-# Tauri + SvelteKit + TypeScript
+I recommend having the updated version of powershell for this. 
+  winget install Microsoft.PowerShell
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+You will also need FFMPEG in one of the four places.
+        "C:\\ffmpeg\\ffmpeg.exe",
+        "C:\\ffmpeg\\bin\\ffmpeg.exe",
+        "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+        "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
 
-## Recommended IDE Setup
-
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+Finally this is an ongoing project so I will be updating it constantly until 1.0. After I will start making branches so I dont mess anything up too much.
