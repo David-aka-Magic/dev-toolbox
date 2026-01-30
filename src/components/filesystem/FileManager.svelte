@@ -20,6 +20,7 @@
   import { clipboard } from '$lib/stores/clipboardStore';
   import { openMediaInNewWindow } from '$lib/utils/openMediaWindow';
   import { directoryCache } from '$lib/stores/directoryCacheStore';
+  import { get } from 'svelte/store';
 
   let files: any[] = [];
   let isLoading = false;
@@ -31,6 +32,7 @@
   let menuX = 0;
   let menuY = 0;
   let menuTargetFile: string | null = null;
+  let menuSelection: Set<string> = new Set();
 
   let renamingFile: string | null = null;
   let creationType: 'folder' | 'file' | null = null;
@@ -57,12 +59,14 @@
     calculateFolderSizes();
   }
 
+  $: console.log('FileManager: menuTargetFile is now:', menuTargetFile);
+
   onMount(() => {
     forceRefreshListener = () => {
       const currentPath = $activeTab?.path;
       if (currentPath) {
         directoryCache.invalidate(currentPath);
-        loadFiles(currentPath, undefined, true);
+        loadFiles(currentPath, null, true);
       }
     };
     window.addEventListener('force-file-refresh', forceRefreshListener);
@@ -81,7 +85,6 @@
       if (folderSizes.has(folder.path)) continue;
       
       try {
-        // Use the new lazy directory size command
         const size = await invoke<number | null>("get_directory_size", { path: folder.path });
         folderSizes.set(folder.path, size);
         folderSizes = folderSizes;
@@ -93,10 +96,8 @@
   }
 
   async function loadFiles(path: string, targetSelect: string | null = null, forceRefresh: boolean = false) {
-    // OPTIMIZATION: Prevent duplicate loads for the same path
     if (path === lastLoadedPath && !targetSelect && !forceRefresh) return;
     
-    // OPTIMIZATION: Check cache first (unless forcing refresh)
     if (!forceRefresh && !targetSelect) {
       const cached = directoryCache.get(path);
       if (cached) {
@@ -123,12 +124,12 @@
     try {
       files = await invoke("read_directory", { path });
       
-      // OPTIMIZATION: Cache the directory contents
       directoryCache.set(path, files);
       
       thumbnailLoader.queueThumbnails(files);
 
       if (targetSelect) {
+        await tick();
         const index = sortedFiles.findIndex(f => f.name === targetSelect);
         if (index !== -1) {
           fileSelection.selectFile(targetSelect, index);
@@ -146,35 +147,35 @@
 
   function copySelectedFiles() {
     const currentPath = $activeTab?.path;
-    if (!currentPath || $selectedFiles.size === 0) return;
+    const selected = get(selectedFiles);
+    if (!currentPath || selected.size === 0) return;
     
-    const fileNames = Array.from($selectedFiles);
+    const fileNames = Array.from(selected);
     const filePaths = fileNames.map(name => joinPath(currentPath, name));
     clipboard.copy(filePaths, fileNames, currentPath);
   }
 
   function cutSelectedFiles() {
     const currentPath = $activeTab?.path;
-    if (!currentPath || $selectedFiles.size === 0) return;
+    const selected = get(selectedFiles);
+    if (!currentPath || selected.size === 0) return;
     
-    const fileNames = Array.from($selectedFiles);
+    const fileNames = Array.from(selected);
     const filePaths = fileNames.map(name => joinPath(currentPath, name));
     clipboard.cut(filePaths, fileNames, currentPath);
   }
 
   async function pasteFiles(targetPath?: string) {
+    const currentPath = $activeTab?.path;
+    const destinationPath = targetPath || currentPath;
+    
+    if (!destinationPath) return;
+    
     const clipboardState = clipboard.getState();
     if (clipboardState.files.length === 0) return;
     if (isPasting) return;
     
     isPasting = true;
-    const currentPath = $activeTab?.path;
-    const destinationPath = targetPath || currentPath;
-    
-    if (!destinationPath) {
-      isPasting = false;
-      return;
-    }
 
     try {
       const destFiles = await invoke<any[]>("read_directory", { path: destinationPath });
@@ -197,27 +198,25 @@
             counter++;
           }
           
-          await invoke('copy_item', { source: sourcePath, destination: destinationPath, newName });
+          await invoke('copy_item', { src: sourcePath, dest: destinationPath, newName });
         } else if (clipboardState.operation === 'copy') {
-          await invoke('copy_item', { source: sourcePath, destination: destinationPath });
+          await invoke('copy_item', { src: sourcePath, dest: destinationPath });
         } else if (clipboardState.operation === 'cut') {
-          await invoke('move_item', { source: sourcePath, destination: destinationPath });
+          await invoke('move_item', { src: sourcePath, dest: destinationPath });
         }
       }
       
       if (clipboardState.operation === 'cut') {
         clipboard.clear();
-        // Invalidate source directory cache
         if (clipboardState.sourcePath) {
           directoryCache.invalidate(clipboardState.sourcePath);
         }
       }
       
-      // Invalidate destination cache and reload
       directoryCache.invalidate(destinationPath);
       if (currentPath) {
         directoryCache.invalidate(currentPath);
-        loadFiles(currentPath, undefined, true);
+        loadFiles(currentPath, null, true);
       }
     } catch (err) {
       console.error("Paste error:", err);
@@ -279,14 +278,30 @@
     return confirm(confirmMessage);
   }
 
-  async function handleMenuAction(action: string) {
-    showMenu = false;
+  async function handleMenuAction(action: string, targetFileFromMenu: string | null) {
+    console.log('=== handleMenuAction ===');
+    console.log('action:', action);
+    console.log('targetFileFromMenu (from ContextMenu):', targetFileFromMenu);
+    console.log('menuTargetFile (local state):', menuTargetFile);
+    console.log('menuSelection:', Array.from(menuSelection));
+    
     const currentPath = $activeTab?.path;
-    if (!currentPath) return;
+    const targetFileName = targetFileFromMenu;
+    const targetFile = targetFileName ? files.find(f => f.name === targetFileName) : null;
+    const currentSelection = menuSelection;
+    
+    console.log('Resolved targetFile object:', targetFile);
+    
+    showMenu = false;
+    
+    if (!currentPath) {
+      console.log('No currentPath, returning');
+      return;
+    }
 
     if (action === 'refresh') {
       directoryCache.invalidate(currentPath);
-      loadFiles(currentPath, undefined, true);
+      loadFiles(currentPath, null, true);
       return;
     }
 
@@ -305,53 +320,81 @@
       return;
     }
 
-    if (menuTargetFile) {
-      const fullPath = joinPath(currentPath, menuTargetFile);
-      const targetFile = files.find(f => f.name === menuTargetFile);
+    if (action === 'new_folder') {
+      creationType = 'folder';
+      return;
+    }
+    
+    if (action === 'new_file') {
+      creationType = 'file';
+      return;
+    }
 
-      if (action === 'paste_into' && targetFile?.is_dir) {
-        pasteFiles(targetFile.path);
-        return;
-      }
+    if (!targetFileName) {
+      console.log('No targetFileName, returning');
+      return;
+    }
 
-      if (action === 'open' && targetFile?.is_dir) {
+    if (action === 'paste_into' && targetFile?.is_dir) {
+      pasteFiles(targetFile.path);
+      return;
+    }
+
+    if (action === 'open') {
+      console.log('Executing open');
+      if (targetFile?.is_dir) {
         fileTabs.updateActivePath(targetFile.path);
-      }
-      if (action === 'open_new_tab' && targetFile?.is_dir) {
-        fileTabs.addTab(targetFile.path);
-      }
-      if (action === 'open' && !targetFile?.is_dir) {
+      } else if (targetFile) {
         openFile(targetFile);
       }
-      if (action === 'open_in_editor' && targetFile) {
-        openInEditor(targetFile);
+      return;
+    }
+    
+    if (action === 'open_new_tab' && targetFile?.is_dir) {
+      fileTabs.addTab(targetFile.path);
+      return;
+    }
+    
+    if (action === 'open_in_editor' && targetFile) {
+      console.log('Executing open_in_editor with:', targetFile);
+      openInEditor(targetFile);
+      return;
+    }
+    
+    if (action === 'rename') {
+      console.log('Executing rename, setting renamingFile to:', targetFileName);
+      renamingFile = targetFileName;
+      return;
+    }
+    
+    if (action === 'delete') {
+      console.log('Executing delete');
+      let filesToDelete: string[];
+      
+      if (currentSelection.size > 0 && currentSelection.has(targetFileName)) {
+        filesToDelete = Array.from(currentSelection);
+      } else {
+        filesToDelete = [targetFileName];
       }
-      if (action === 'rename') {
-        renamingFile = menuTargetFile;
-      }
-      if (action === 'delete') {
-        const filesToDelete = $selectedFiles.size > 0 
-          ? Array.from($selectedFiles) 
-          : (menuTargetFile ? [menuTargetFile] : []);
-        
-        if (filesToDelete.length === 0) return;
-        
-        if (confirmDelete(filesToDelete)) {
-          try {
-            for (const fileName of filesToDelete) {
-              const deletePath = joinPath(currentPath, fileName);
-              await invoke('delete_item', { path: deletePath });
-            }
-            directoryCache.invalidate(currentPath);
-            loadFiles(currentPath, undefined, true);
-          } catch (err) {
-            alert('Error deleting: ' + err);
+      
+      console.log('Files to delete:', filesToDelete);
+      
+      if (filesToDelete.length === 0) return;
+      
+      if (confirmDelete(filesToDelete)) {
+        try {
+          for (const fileName of filesToDelete) {
+            const deletePath = joinPath(currentPath, fileName);
+            console.log('Deleting:', deletePath);
+            await invoke('delete_item', { path: deletePath });
           }
+          directoryCache.invalidate(currentPath);
+          loadFiles(currentPath, null, true);
+        } catch (err) {
+          alert('Error deleting: ' + err);
         }
       }
-    } else {
-      if (action === 'new_folder') creationType = 'folder';
-      if (action === 'new_file') creationType = 'file';
+      return;
     }
   }
 
@@ -376,6 +419,7 @@
   }
 
   async function openInEditor(file: any) {
+    console.log('openInEditor called with:', file);
     try {
       const content = await invoke<string>('read_file', { path: file.path });
 
@@ -396,8 +440,8 @@
   }
 
   function handleBackgroundClick() {
-    if (creationType) {
-      creationType = null;
+    if (creationType || renamingFile) {
+      return;
     }
     fileSelection.clearSelection();
     showMenu = false;
@@ -428,18 +472,26 @@
   function handleItemContextMenu(detail: any) {
     const { event: mouseEvent, fileName } = detail;
     
+    console.log('handleItemContextMenu called with fileName:', fileName);
+    
     if (creationType) return;
 
     menuX = mouseEvent.clientX;
     menuY = mouseEvent.clientY;
     menuTargetFile = fileName;
+    
+    console.log('Set menuTargetFile to:', menuTargetFile);
 
-    if (fileName && !$selectedFiles.has(fileName)) {
+    const currentSelection = get(selectedFiles);
+    if (fileName && !currentSelection.has(fileName)) {
       fileSelection.clearSelection();
       const index = sortedFiles.findIndex(f => f.name === fileName);
       if (index !== -1) {
         fileSelection.selectFile(fileName, index);
       }
+      menuSelection = new Set([fileName]);
+    } else {
+      menuSelection = new Set(currentSelection);
     }
     
     showMenu = true;
@@ -453,6 +505,7 @@
     menuX = event.clientX;
     menuY = event.clientY;
     menuTargetFile = null;
+    menuSelection = get(selectedFiles);
     showMenu = true;
   }
 
@@ -463,7 +516,7 @@
 
     await fileDragDrop.handleItemDrop(dropEvent, targetFolder, currentPath, () => {
       directoryCache.invalidate(currentPath);
-      loadFiles(currentPath, undefined, true);
+      loadFiles(currentPath, null, true);
     });
   }
 
@@ -502,13 +555,29 @@
 
     if (currentPath) {
       try {
+        const existingFiles = await invoke<any[]>("read_directory", { path: currentPath });
+        let finalName = name;
+        
+        if (existingFiles.some(f => f.name === name)) {
+          let counter = 1;
+          const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+          const baseName = ext && type === 'file' ? name.slice(0, -ext.length) : name;
+          
+          while (existingFiles.some(f => f.name === finalName)) {
+            finalName = type === 'file' && ext ? `${baseName} (${counter})${ext}` : `${baseName} (${counter})`;
+            counter++;
+          }
+        }
+        
+        const finalPath = joinPath(currentPath, finalName);
+        
         if (type === 'folder') {
-          await invoke('create_directory', { path: currentPath, name });
+          await invoke('create_directory', { path: finalPath });
         } else {
-          await invoke('create_file', { path: currentPath, name });
+          await invoke('create_file', { path: finalPath });
         }
         directoryCache.invalidate(currentPath);
-        await loadFiles(currentPath, name, true);
+        await loadFiles(currentPath, finalName, true);
       } catch (err) {
         alert(`Error creating ${type}: ${err}`);
       }
@@ -546,9 +615,12 @@
       return;
     }
 
-    if (event.key === 'F2' && $selectedFiles.size === 1) {
+    if (event.key === 'F2') {
       event.preventDefault();
-      renamingFile = Array.from($selectedFiles)[0];
+      const selected = get(selectedFiles);
+      if (selected.size === 1) {
+        renamingFile = Array.from(selected)[0];
+      }
       return;
     }
 
@@ -557,7 +629,7 @@
       const currentPath = $activeTab?.path;
       if (currentPath) {
         directoryCache.invalidate(currentPath);
-        loadFiles(currentPath, undefined, true);
+        loadFiles(currentPath, null, true);
       }
       return;
     }
@@ -567,9 +639,10 @@
     if (event.key === 'Delete') {
       event.preventDefault();
       const currentPath = $activeTab?.path;
-      if (!currentPath || $selectedFiles.size === 0) return;
+      const selected = get(selectedFiles);
+      if (!currentPath || selected.size === 0) return;
       
-      const filesToDelete = Array.from($selectedFiles);
+      const filesToDelete = Array.from(selected);
       
       if (confirmDelete(filesToDelete)) {
         (async () => {
@@ -579,7 +652,7 @@
               await invoke('delete_item', { path: fullPath });
             }
             directoryCache.invalidate(currentPath);
-            loadFiles(currentPath, undefined, true);
+            loadFiles(currentPath, null, true);
           } catch (err) {
             alert('Error deleting: ' + err);
           }
@@ -668,7 +741,8 @@
       x={menuX}
       y={menuY}
       options={getMenuOptions()}
-      onclose={() => (showMenu = false)}
+      targetFile={menuTargetFile}
+      onclose={() => { showMenu = false; }}
       onclick={handleMenuAction}
     />
   {/if}

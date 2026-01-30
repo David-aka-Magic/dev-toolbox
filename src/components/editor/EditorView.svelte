@@ -17,7 +17,7 @@
   import { settings } from '$lib/stores/settingsStore';
   import { recentFiles } from '$lib/stores/recentFileStore';
   import FilePickerModal from './FilePickerModal.svelte';
-  import EditorSidebar from './/EditorSidebar.svelte';
+  import EditorSidebar from './EditorSideBar.svelte';
   import EditorStatusBar from './EditorStatusBar.svelte';
   import CommandPalette from './CommandPalette.svelte';
 
