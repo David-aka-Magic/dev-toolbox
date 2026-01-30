@@ -37,6 +37,18 @@
   </button>
 
   <button 
+    class:active={$currentView === 'api'} 
+    on:click={() => $currentView = 'api'}
+    title="API Tester"
+  >
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+      <path d="M2 17l10 5 10-5"></path>
+      <path d="M2 12l10 5 10-5"></path>
+    </svg>
+  </button>
+
+  <button 
     class="settings-btn"
     on:click={() => $isSettingsOpen = true}
     title="Settings"
@@ -58,10 +70,10 @@
     flex-direction: column;
     align-items: center;
     padding-top: 10px;
-    padding-bottom: 30px; /* INCREASED: Lifts the gear icon up */
+    padding-bottom: 30px;
     gap: 10px;
     transition: background 0.3s;
-    box-sizing: border-box; /* Ensures padding doesn't affect width */
+    box-sizing: border-box;
   }
 
   button {

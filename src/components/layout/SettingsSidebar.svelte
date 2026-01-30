@@ -1,5 +1,4 @@
 <script lang="ts">
-  // We receive a callback function directly from the parent
   export let onSelect: (id: string) => void = () => {}; 
   export let activeSection: string = 'general';
 
@@ -7,12 +6,12 @@
     { id: 'general', label: 'General', icon: 'settings' },
     { id: 'terminal', label: 'Terminal', icon: 'terminal' },
     { id: 'files', label: 'Filesystem', icon: 'folder' },
-    { id: 'editor', label: 'Editor', icon: 'code' }
+    { id: 'editor', label: 'Editor', icon: 'code' },
+    { id: 'api', label: 'API Tester', icon: 'api' }
   ];
 
   function handleClick(id: string) {
     activeSection = id;
-    // Call the parent's function to trigger the scroll
     onSelect(id);
   }
 </script>

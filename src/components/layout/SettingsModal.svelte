@@ -78,6 +78,12 @@
     { value: 'minimal', label: 'Minimal' },
     { value: 'none', label: 'None' }
   ];
+  
+  const contentTypeOptions = [
+    { value: 'application/json', label: 'JSON (application/json)' },
+    { value: 'text/plain', label: 'Plain Text (text/plain)' },
+    { value: 'application/x-www-form-urlencoded', label: 'Form URL Encoded' }
+  ];
 
   // === EFFECTS ===
 
@@ -87,6 +93,7 @@
       if ($currentView === 'editor') startSection = 'editor';
       else if ($currentView === 'terminal') startSection = 'terminal';
       else if ($currentView === 'files') startSection = 'files';
+      else if ($currentView === 'api') startSection = 'api';
       
       activeSection = startSection;
       scrollToSection(startSection);
@@ -144,7 +151,7 @@
 
   function handleScroll() {
     if (isManualScroll || !scrollContainer) return;
-    const sections = ['general', 'terminal', 'files', 'editor'];
+    const sections = ['general', 'terminal', 'files', 'editor', 'api'];
     const scrollPos = scrollContainer.scrollTop + 100; 
 
     for (const id of sections) {
@@ -565,7 +572,96 @@
             />
           </div>
         {/if}
-      </section>
+        
+        
+        <hr class="divider" />
+        
+     <!-- API TESTER -->
+     <section id="section-api">
+       <div class="section-header">
+         <h3>API Tester</h3>
+         <p>Configure HTTP request behavior and defaults.</p>
+       </div>
+        
+       <!-- Request Defaults -->
+       <h4 class="subsection-header">Request Defaults</h4>
+        
+       <div class="row">
+         <div class="half">
+           <div class="form-group">
+             <label>Default Timeout (ms)</label>
+             <input 
+               type="number" 
+               class="number-input"
+               bind:value={$settings.apiDefaultTimeout}
+               min="1000"
+               max="300000"
+               step="1000"
+             />
+           </div>
+         </div>
+         <div class="half">
+           <Select 
+             label="Default Content-Type" 
+             options={contentTypeOptions} 
+             bind:value={$settings.apiDefaultContentType}
+           />
+         </div>
+       </div>
+        
+       <Checkbox 
+         label="Follow redirects automatically" 
+         bind:checked={$settings.apiFollowRedirects} 
+       />
+        
+       <Checkbox 
+         label="Validate SSL certificates" 
+         bind:checked={$settings.apiValidateSSL} 
+       />
+        
+       <div class="spacer-sm"></div>
+        
+       <!-- Response Handling -->
+       <h4 class="subsection-header">Response Handling</h4>
+        
+       <Checkbox 
+         label="Auto-format JSON responses" 
+         bind:checked={$settings.apiAutoFormatJson} 
+       />
+        
+       <div class="spacer-sm"></div>
+        
+       <!-- History -->
+       <h4 class="subsection-header">History</h4>
+        
+       <Checkbox 
+         label="Save requests to history" 
+         bind:checked={$settings.apiSaveToHistory} 
+       />
+        
+       {#if $settings.apiSaveToHistory}
+         <div class="indent-group">
+           <div class="slider-group">
+             <label class="slider-label">
+               Maximum history items
+               <span class="slider-value">{$settings.apiMaxHistoryItems}</span>
+             </label>
+             <input 
+               type="range" 
+               min="10" 
+               max="200" 
+               step="10"
+               bind:value={$settings.apiMaxHistoryItems}
+               class="slider"
+             />
+             <div class="slider-range">
+               <span>10</span>
+               <span>200</span>
+             </div>
+           </div>
+         </div>
+       {/if}
+     </section>
     </div>
   </div>
 

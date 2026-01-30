@@ -41,6 +41,15 @@ interface Settings {
   fileVideoPreviewResolution: number;
   fileUseHardwareAccel: boolean;
   fileThumbnailCacheSize: number;
+
+  // API Tester Settings
+  apiDefaultTimeout: number;
+  apiFollowRedirects: boolean;
+  apiValidateSSL: boolean;
+  apiDefaultContentType: 'application/json' | 'text/plain' | 'application/x-www-form-urlencoded';
+  apiMaxHistoryItems: number;
+  apiAutoFormatJson: boolean;
+  apiSaveToHistory: boolean;
 }
 
 const defaultSettings: Settings = {
@@ -83,6 +92,15 @@ const defaultSettings: Settings = {
   fileVideoPreviewResolution: 160,
   fileUseHardwareAccel: true,
   fileThumbnailCacheSize: 500,
+
+  // API Tester
+  apiDefaultTimeout: 30000,
+  apiFollowRedirects: true,
+  apiValidateSSL: true,
+  apiDefaultContentType: 'application/json',
+  apiMaxHistoryItems: 50,
+  apiAutoFormatJson: true,
+  apiSaveToHistory: true,
 };
 
 const stored = localStorage.getItem('app-settings');
