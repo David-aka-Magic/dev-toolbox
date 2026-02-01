@@ -2,6 +2,7 @@
   import { fileSelection, selectedFiles, focusedIndex } from './hooks/useFileSelection';
   import { fileDragDrop } from './hooks/useFileDragDrop';
   import { thumbnails } from './hooks/useThumbnailLoader';
+  import { sortConfig, toggleSort, type SortField } from '$lib/stores/viewModeStore';
   import FileCreationDialog from './FileCreationDialog.svelte';
 
   export let files: any[] = [];
@@ -9,7 +10,6 @@
   export let renamingFile: string | null = null;
   export let creationType: 'folder' | 'file' | null = null;
 
-  // Callback props
   export let onbackgroundclick: (() => void) | undefined = undefined;
   export let onitemdblclick: ((detail: any) => void) | undefined = undefined;
   export let onitemcontextmenu: ((detail: any) => void) | undefined = undefined;
@@ -22,7 +22,13 @@
   let renameInput: HTMLInputElement;
   let renameValue = '';
 
-  // Get file icon
+  const sortOptions: { value: SortField; label: string; icon: string }[] = [
+    { value: 'name', label: 'Name', icon: 'Aa' },
+    { value: 'modified', label: 'Date', icon: '📅' },
+    { value: 'size', label: 'Size', icon: '📊' },
+    { value: 'type', label: 'Type', icon: '📎' }
+  ];
+
   function getIcon(file: any): string {
     if (file.is_dir) return '📁';
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -40,7 +46,6 @@
     return iconMap[ext] || '📄';
   }
 
-  // Format file size
   function formatSize(bytes: number | undefined): string {
     if (bytes === undefined || bytes === null) return '';
     if (bytes === 0) return '0 B';
@@ -50,7 +55,6 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
-  // Event handlers
   function handleBackgroundClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
       onbackgroundclick?.();
@@ -95,7 +99,6 @@
     onitemdrop?.({ event, file });
   }
 
-  // Rename handling
   function startRename(fileName: string) {
     renameValue = fileName;
   }
@@ -118,78 +121,183 @@
     onrenamesubmit?.({ newName: renameValue.trim() });
   }
 
+  function handleSortClick(field: SortField) {
+    toggleSort(field);
+  }
+
   export function getContainerWidth(): number {
     return listContainer?.clientWidth || 800;
   }
 </script>
 
-<div
-  class="list-container"
-  bind:this={listContainer}
-  on:click={handleBackgroundClick}
-  role="presentation"
->
-  {#if isLoading && !files.length}
-    <div class="loading">Loading...</div>
-  {:else}
-    {#each files as file, i (file.name)}
-      <div
-        id="file-btn-{i}"
-        class="list-item"
-        class:selected={$selectedFiles.has(file.name)}
-        class:focused={$focusedIndex === i}
-        class:being-dragged={$fileDragDrop.draggedFiles.includes(file.name)}
-        class:drag-over={false}
-        draggable={true}
-        on:click={(e) => handleItemClick(e, i, file.name)}
-        on:dblclick={() => handleItemDblClick(file)}
-        on:contextmenu={(e) => handleItemContextMenu(e, file.name)}
-        on:dragstart={(e) => handleDragStart(e, file)}
-        on:dragend={handleDragEnd}
-        on:dragenter={(e) => handleDragEnter(e, file)}
-        on:dragover={(e) => handleDragOver(e, file)}
-        on:dragleave={handleDragLeave}
-        on:drop={(e) => handleDrop(e, file)}
-        role="button"
-        tabindex="0"
-      >
-        <span class="icon">
-          {#if $thumbnails.has(file.path)}
-            <img src={$thumbnails.get(file.path)} alt="" class="thumbnail" />
-          {:else}
-            {getIcon(file)}
+<div class="list-wrapper">
+  <div class="list-toolbar">
+    <div class="sort-buttons">
+      {#each sortOptions as option}
+        <button 
+          class="sort-btn"
+          class:active={$sortConfig.field === option.value}
+          on:click={() => handleSortClick(option.value)}
+          title="Sort by {option.label}"
+        >
+          <span class="sort-icon">{option.icon}</span>
+          <span class="sort-label">{option.label}</span>
+          {#if $sortConfig.field === option.value}
+            <span class="sort-arrow">{$sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
           {/if}
-        </span>
-        
-        {#if renamingFile === file.name}
-          <input
-            bind:this={renameInput}
-            bind:value={renameValue}
-            type="text"
-            class="rename-input"
-            on:keydown={handleRenameKeydown}
-            on:blur={handleRenameBlur}
-            on:click|stopPropagation
-          />
-        {:else}
-          <span class="name" title={file.name}>{file.name}</span>
-        {/if}
-        
-        <span class="size">{file.is_dir ? '' : formatSize(file.size)}</span>
-      </div>
-    {/each}
+        </button>
+      {/each}
+    </div>
+    
+    <div class="toolbar-right">
+      <span class="file-count">{files.length} items</span>
+    </div>
+  </div>
 
-    {#if creationType}
-      <FileCreationDialog
-        type={creationType}
-        onconfirm={oncreationconfirm}
-        oncancel={oncreationcancel}
-      />
+  <div
+    class="list-container"
+    bind:this={listContainer}
+    on:click={handleBackgroundClick}
+    role="presentation"
+  >
+    {#if isLoading && !files.length}
+      <div class="loading">Loading...</div>
+    {:else}
+      {#each files as file, i (file.name)}
+        <div
+          id="file-btn-{i}"
+          class="list-item"
+          class:selected={$selectedFiles.has(file.name)}
+          class:focused={$focusedIndex === i}
+          class:being-dragged={$fileDragDrop.draggedFiles.includes(file.name)}
+          class:drag-over={$fileDragDrop.currentDropTarget === file.name && file.is_dir}
+          draggable={true}
+          on:click={(e) => handleItemClick(e, i, file.name)}
+          on:dblclick={() => handleItemDblClick(file)}
+          on:contextmenu={(e) => handleItemContextMenu(e, file.name)}
+          on:dragstart={(e) => handleDragStart(e, file)}
+          on:dragend={handleDragEnd}
+          on:dragenter={(e) => handleDragEnter(e, file)}
+          on:dragover={(e) => handleDragOver(e, file)}
+          on:dragleave={handleDragLeave}
+          on:drop={(e) => handleDrop(e, file)}
+          role="button"
+          tabindex="0"
+        >
+          <span class="icon">
+            {#if $thumbnails.has(file.path)}
+              <img src={$thumbnails.get(file.path)} alt="" class="thumbnail" />
+            {:else}
+              {getIcon(file)}
+            {/if}
+          </span>
+          
+          {#if renamingFile === file.name}
+            <input
+              bind:this={renameInput}
+              bind:value={renameValue}
+              type="text"
+              class="rename-input"
+              on:keydown={handleRenameKeydown}
+              on:blur={handleRenameBlur}
+              on:click|stopPropagation
+            />
+          {:else}
+            <span class="name" title={file.name}>{file.name}</span>
+          {/if}
+          
+          <span class="size">{file.is_dir ? '' : formatSize(file.size)}</span>
+        </div>
+      {/each}
+
+      {#if creationType}
+        <FileCreationDialog
+          type={creationType}
+          onconfirm={oncreationconfirm}
+          oncancel={oncreationcancel}
+        />
+      {/if}
     {/if}
-  {/if}
+  </div>
 </div>
 
 <style>
+  .list-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+  }
+
+  .list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: var(--bg-main);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 32px;
+  }
+
+  .sort-buttons {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .sort-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .sort-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-main);
+  }
+
+  .sort-btn.active {
+    background: var(--selection);
+    border-color: var(--border-focus);
+    color: var(--text-main);
+  }
+
+  .sort-icon {
+    font-size: 11px;
+    opacity: 0.8;
+  }
+
+  .sort-label {
+    font-weight: 500;
+  }
+
+  .sort-arrow {
+    font-size: 10px;
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .file-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.8;
+  }
+
   .list-container {
     flex: 1;
     overflow-y: auto;

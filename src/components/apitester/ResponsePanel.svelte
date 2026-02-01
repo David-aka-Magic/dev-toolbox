@@ -1,10 +1,10 @@
 <script lang="ts">
   import { apiStore } from '$lib/stores/apiStore';
 
-  let activeTab: 'body' | 'headers' | 'cookies' = 'body';
-  let bodyView: 'pretty' | 'raw' = 'pretty';
+  let activeTab: 'body' | 'headers' | 'cookies' = $state('body');
+  let bodyView: 'pretty' | 'raw' = $state('pretty');
 
-  $: response = $apiStore.response;
+  let response = $derived($apiStore.response);
 
   function formatSize(bytes: number): string {
     if (bytes === 0) return '0 B';
@@ -65,10 +65,10 @@
         </span>
       </div>
       <div class="actions">
-        <button class="action-btn" on:click={() => copyToClipboard(response.body)} title="Copy">
+        <button class="action-btn" onclick={() => copyToClipboard(response.body)} title="Copy">
           📋
         </button>
-        <button class="action-btn" on:click={downloadResponse} title="Download">
+        <button class="action-btn" onclick={downloadResponse} title="Download">
           ⬇️
         </button>
       </div>
@@ -78,14 +78,14 @@
       <button 
         class="tab" 
         class:active={activeTab === 'body'}
-        on:click={() => activeTab = 'body'}
+        onclick={() => activeTab = 'body'}
       >
         Body
       </button>
       <button 
         class="tab" 
         class:active={activeTab === 'headers'}
-        on:click={() => activeTab = 'headers'}
+        onclick={() => activeTab = 'headers'}
       >
         Headers
         <span class="badge">{Object.keys(response.headers).length}</span>
@@ -93,7 +93,7 @@
       <button 
         class="tab" 
         class:active={activeTab === 'cookies'}
-        on:click={() => activeTab = 'cookies'}
+        onclick={() => activeTab = 'cookies'}
       >
         Cookies
       </button>
@@ -104,14 +104,14 @@
           <button 
             class="toggle-btn" 
             class:active={bodyView === 'pretty'}
-            on:click={() => bodyView = 'pretty'}
+            onclick={() => bodyView = 'pretty'}
           >
             Pretty
           </button>
           <button 
             class="toggle-btn" 
             class:active={bodyView === 'raw'}
-            on:click={() => bodyView = 'raw'}
+            onclick={() => bodyView = 'raw'}
           >
             Raw
           </button>

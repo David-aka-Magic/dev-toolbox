@@ -6,10 +6,10 @@
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
-  let activeTab: 'params' | 'headers' | 'body' | 'auth' = 'params';
-  let isLoading = false;
+  let activeTab: 'params' | 'headers' | 'body' | 'auth' = $state('params');
+  let isLoading = $state(false);
 
-  $: activeRequest = $apiStore.activeRequest;
+  let activeRequest = $derived($apiStore.activeRequest);
 
   function updateMethod(e: Event) {
     const method = (e.target as HTMLSelectElement).value;
@@ -132,6 +132,18 @@
     };
     return colors[method] || '#6b7280';
   }
+
+  function handleParamsUpdate(items: any[]) {
+    apiStore.updateActiveRequest({ params: items });
+  }
+
+  function handleHeadersUpdate(items: any[]) {
+    apiStore.updateActiveRequest({ headers: items });
+  }
+
+  function handleBodyUpdate(data: { body: string; bodyType: any }) {
+    apiStore.updateActiveRequest({ body: data.body, bodyType: data.bodyType });
+  }
 </script>
 
 <div class="request-panel">
@@ -139,7 +151,7 @@
     <select 
       class="method-select" 
       value={activeRequest?.method || 'GET'}
-      on:change={updateMethod}
+      onchange={updateMethod}
       style="color: {getMethodColor(activeRequest?.method || 'GET')}"
     >
       {#each HTTP_METHODS as method}
@@ -152,13 +164,13 @@
       class="url-input"
       placeholder="Enter request URL"
       value={activeRequest?.url || ''}
-      on:input={updateUrl}
-      on:keydown={(e) => e.key === 'Enter' && sendRequest()}
+      oninput={updateUrl}
+      onkeydown={(e) => e.key === 'Enter' && sendRequest()}
     />
 
     <button 
       class="send-btn" 
-      on:click={sendRequest}
+      onclick={sendRequest}
       disabled={isLoading || !activeRequest?.url}
     >
       {#if isLoading}
@@ -173,7 +185,7 @@
     <button 
       class="tab" 
       class:active={activeTab === 'params'}
-      on:click={() => activeTab = 'params'}
+      onclick={() => activeTab = 'params'}
     >
       Params
       {#if activeRequest?.params?.filter(p => p.enabled && p.key).length}
@@ -183,7 +195,7 @@
     <button 
       class="tab" 
       class:active={activeTab === 'headers'}
-      on:click={() => activeTab = 'headers'}
+      onclick={() => activeTab = 'headers'}
     >
       Headers
       {#if activeRequest?.headers?.filter(h => h.enabled && h.key).length}
@@ -193,14 +205,14 @@
     <button 
       class="tab" 
       class:active={activeTab === 'body'}
-      on:click={() => activeTab = 'body'}
+      onclick={() => activeTab = 'body'}
     >
       Body
     </button>
     <button 
       class="tab" 
       class:active={activeTab === 'auth'}
-      on:click={() => activeTab = 'auth'}
+      onclick={() => activeTab = 'auth'}
     >
       Auth
     </button>
@@ -210,20 +222,20 @@
     {#if activeTab === 'params'}
       <KeyValueEditor 
         items={activeRequest?.params || []}
-        on:update={(e) => apiStore.updateActiveRequest({ params: e.detail })}
+        onupdate={handleParamsUpdate}
         placeholder={{ key: 'Parameter name', value: 'Value' }}
       />
     {:else if activeTab === 'headers'}
       <KeyValueEditor 
         items={activeRequest?.headers || []}
-        on:update={(e) => apiStore.updateActiveRequest({ headers: e.detail })}
+        onupdate={handleHeadersUpdate}
         placeholder={{ key: 'Header name', value: 'Value' }}
       />
     {:else if activeTab === 'body'}
       <BodyEditor 
         body={activeRequest?.body || ''}
         bodyType={activeRequest?.bodyType || 'json'}
-        on:update={(e) => apiStore.updateActiveRequest({ body: e.detail.body, bodyType: e.detail.bodyType })}
+        onupdate={handleBodyUpdate}
       />
     {:else if activeTab === 'auth'}
       <div class="auth-panel">

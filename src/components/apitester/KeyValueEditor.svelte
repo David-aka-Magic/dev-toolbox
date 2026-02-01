@@ -1,26 +1,35 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  interface KeyValueItem {
+    key: string;
+    value: string;
+    enabled: boolean;
+  }
 
-  export let items: Array<{ key: string; value: string; enabled: boolean }> = [];
-  export let placeholder = { key: 'Key', value: 'Value' };
-
-  const dispatch = createEventDispatcher();
+  let { 
+    items = [], 
+    placeholder = { key: 'Key', value: 'Value' },
+    onupdate = (items: KeyValueItem[]) => {}
+  }: {
+    items: KeyValueItem[];
+    placeholder?: { key: string; value: string };
+    onupdate?: (items: KeyValueItem[]) => void;
+  } = $props();
 
   function addRow() {
     const newItems = [...items, { key: '', value: '', enabled: true }];
-    dispatch('update', newItems);
+    onupdate(newItems);
   }
 
   function removeRow(index: number) {
     const newItems = items.filter((_, i) => i !== index);
-    dispatch('update', newItems);
+    onupdate(newItems);
   }
 
   function updateRow(index: number, field: 'key' | 'value' | 'enabled', value: string | boolean) {
     const newItems = items.map((item, i) => 
       i === index ? { ...item, [field]: value } : item
     );
-    dispatch('update', newItems);
+    onupdate(newItems);
   }
 
   function handleKeyInput(e: Event, index: number) {
@@ -47,7 +56,7 @@
         <input 
           type="checkbox" 
           checked={item.enabled}
-          on:change={(e) => updateRow(index, 'enabled', (e.target as HTMLInputElement).checked)}
+          onchange={(e) => updateRow(index, 'enabled', (e.target as HTMLInputElement).checked)}
         />
       </div>
       <div class="col-key">
@@ -55,7 +64,7 @@
           type="text" 
           value={item.key}
           placeholder={placeholder.key}
-          on:input={(e) => handleKeyInput(e, index)}
+          oninput={(e) => handleKeyInput(e, index)}
         />
       </div>
       <div class="col-value">
@@ -63,12 +72,12 @@
           type="text" 
           value={item.value}
           placeholder={placeholder.value}
-          on:input={(e) => updateRow(index, 'value', (e.target as HTMLInputElement).value)}
+          oninput={(e) => updateRow(index, 'value', (e.target as HTMLInputElement).value)}
         />
       </div>
       <div class="col-actions">
         {#if items.length > 1 || item.key || item.value}
-          <button class="delete-btn" on:click={() => removeRow(index)} title="Remove">
+          <button class="delete-btn" onclick={() => removeRow(index)} title="Remove">
             ×
           </button>
         {/if}
@@ -77,7 +86,7 @@
   {/each}
 
   {#if items.length === 0}
-    <button class="add-btn" on:click={addRow}>
+    <button class="add-btn" onclick={addRow}>
       + Add
     </button>
   {/if}

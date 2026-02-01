@@ -101,6 +101,7 @@ const defaultSettings: Settings = {
   apiMaxHistoryItems: 50,
   apiAutoFormatJson: true,
   apiSaveToHistory: true,
+  
 };
 
 const stored = localStorage.getItem('app-settings');

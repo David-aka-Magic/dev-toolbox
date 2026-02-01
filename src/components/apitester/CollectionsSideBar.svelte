@@ -1,17 +1,20 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { apiStore, type ApiRequest, type Collection } from '$lib/stores/apiStore';
+  import { apiStore, type ApiRequest } from '$lib/stores/apiStore';
 
-  const dispatch = createEventDispatcher();
+  let { 
+    ontoggle = () => {} 
+  }: { 
+    ontoggle?: () => void 
+  } = $props();
 
-  let newCollectionName = '';
-  let showNewCollection = false;
-  let editingId: string | null = null;
-  let editingName = '';
+  let newCollectionName = $state('');
+  let showNewCollection = $state(false);
+  let editingId: string | null = $state(null);
+  let editingName = $state('');
 
-  $: collections = $apiStore.collections;
-  $: history = $apiStore.history;
-  $: activeRequestId = $apiStore.activeRequest?.id;
+  let collections = $derived($apiStore.collections);
+  let history = $derived($apiStore.history);
+  let activeRequestId = $derived($apiStore.activeRequest?.id);
 
   function createCollection() {
     if (!newCollectionName.trim()) return;
@@ -89,7 +92,7 @@
 <div class="collections-sidebar">
   <div class="sidebar-header">
     <h3>Collections</h3>
-    <button class="icon-btn" on:click={() => dispatch('toggle')} title="Hide Sidebar">
+    <button class="icon-btn" onclick={ontoggle} title="Hide Sidebar">
       ◀
     </button>
   </div>
@@ -97,7 +100,7 @@
   <div class="section">
     <div class="section-header">
       <span>Collections</span>
-      <button class="add-btn" on:click={() => showNewCollection = true} title="New Collection">
+      <button class="add-btn" onclick={() => showNewCollection = true} title="New Collection">
         +
       </button>
     </div>
@@ -108,11 +111,10 @@
           type="text" 
           bind:value={newCollectionName}
           placeholder="Collection name"
-          on:keydown={(e) => e.key === 'Enter' && createCollection()}
-          autofocus
+          onkeydown={(e) => e.key === 'Enter' && createCollection()}
         />
-        <button class="save-btn" on:click={createCollection}>Save</button>
-        <button class="cancel-btn" on:click={() => showNewCollection = false}>×</button>
+        <button class="save-btn" onclick={createCollection}>Save</button>
+        <button class="cancel-btn" onclick={() => showNewCollection = false}>×</button>
       </div>
     {/if}
 
@@ -124,16 +126,15 @@
               <input 
                 type="text"
                 bind:value={editingName}
-                on:blur={finishRename}
-                on:keydown={(e) => e.key === 'Enter' && finishRename()}
-                autofocus
+                onblur={finishRename}
+                onkeydown={(e) => e.key === 'Enter' && finishRename()}
                 class="rename-input"
               />
             {:else}
               <button 
                 class="collection-name" 
-                on:click={() => toggleCollection(collection.id)}
-                on:dblclick={(e) => startRename(e, collection.id, collection.name)}
+                onclick={() => toggleCollection(collection.id)}
+                ondblclick={(e) => startRename(e, collection.id, collection.name)}
               >
                 <span class="expand-icon">{collection.expanded ? '▼' : '▶'}</span>
                 <span>{collection.name}</span>
@@ -143,14 +144,14 @@
             <div class="collection-actions">
               <button 
                 class="action-btn" 
-                on:click={() => saveToCollection(collection.id)} 
+                onclick={() => saveToCollection(collection.id)} 
                 title="Save current request here"
               >
                 +
               </button>
               <button 
                 class="action-btn delete" 
-                on:click={() => deleteCollection(collection.id)}
+                onclick={() => deleteCollection(collection.id)}
                 title="Delete collection"
               >
                 🗑
@@ -164,8 +165,8 @@
                 <div 
                   class="request-item"
                   class:active={request.id === activeRequestId}
-                  on:click={() => selectRequest(request)}
-                  on:keydown={(e) => e.key === 'Enter' && selectRequest(request)}
+                  onclick={() => selectRequest(request)}
+                  onkeydown={(e) => e.key === 'Enter' && selectRequest(request)}
                   role="button"
                   tabindex="0"
                 >
@@ -177,8 +178,8 @@
                   </span>
                   <span 
                     class="delete-btn"
-                    on:click={(e) => deleteRequest(e, collection.id, request.id)}
-                    on:keydown={(e) => e.key === 'Enter' && deleteRequest(e, collection.id, request.id)}
+                    onclick={(e) => deleteRequest(e, collection.id, request.id)}
+                    onkeydown={(e) => e.key === 'Enter' && deleteRequest(e, collection.id, request.id)}
                     role="button"
                     tabindex="0"
                   >
@@ -204,7 +205,7 @@
     <div class="section-header">
       <span>History</span>
       {#if history.length > 0}
-        <button class="clear-btn" on:click={clearHistory}>Clear</button>
+        <button class="clear-btn" onclick={clearHistory}>Clear</button>
       {/if}
     </div>
 
@@ -213,8 +214,8 @@
         <div 
           class="request-item"
           class:active={request.id === activeRequestId}
-          on:click={() => selectRequest(request)}
-          on:keydown={(e) => e.key === 'Enter' && selectRequest(request)}
+          onclick={() => selectRequest(request)}
+          onkeydown={(e) => e.key === 'Enter' && selectRequest(request)}
           role="button"
           tabindex="0"
         >

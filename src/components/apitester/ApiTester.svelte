@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import RequestPanel from './RequestPanel.svelte';
   import ResponsePanel from './ResponsePanel.svelte';
-  import CollectionsSidebar from './CollectionsSideBar.svelte';
-  import { apiStore, type ApiRequest } from '$lib/stores/apiStore';
+  import CollectionsSidebar from './CollectionsSidebar.svelte';
+  import { apiStore } from '$lib/stores/apiStore';
 
-  let showSidebar = true;
+  let showSidebar = $state(true);
 
   function toggleSidebar() {
     showSidebar = !showSidebar;
@@ -19,18 +18,18 @@
 <div class="api-tester">
   {#if showSidebar}
     <div class="sidebar">
-      <CollectionsSidebar on:toggle={toggleSidebar} />
+      <CollectionsSidebar ontoggle={toggleSidebar} />
     </div>
   {/if}
 
   <div class="main-content">
     <div class="toolbar">
       {#if !showSidebar}
-        <button class="toolbar-btn" on:click={toggleSidebar} title="Show Collections">
+        <button class="toolbar-btn" onclick={toggleSidebar} title="Show Collections">
           <span class="icon">☰</span>
         </button>
       {/if}
-      <button class="toolbar-btn new-btn" on:click={handleNewRequest}>
+      <button class="toolbar-btn new-btn" onclick={handleNewRequest}>
         <span class="icon">+</span>
         <span>New Request</span>
       </button>

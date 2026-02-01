@@ -38,32 +38,30 @@
     loading = false;
   }
 
-  async function toggle() {
-    if (!isDir) return;
-    isOpen = !isOpen;
-
-    if (isOpen && children.length === 0) {
-      await loadChildren();
+  async function handleClick(event: MouseEvent) {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      if (isDir) {
+        fileTabs.updateActivePath(path);
+      } else {
+        const parentPath = path.split(/[\\/]/).slice(0, -1).join('\\');
+        if (parentPath) {
+          fileTabs.updateActivePath(parentPath);
+        }
+      }
+      return;
     }
-  }
 
-  function handleContextMenu(event: MouseEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    // Navigate to this path in the file manager
     if (isDir) {
-      fileTabs.updateActivePath(path);
-    } else {
-      // For files, navigate to the parent directory
-      const parentPath = path.split(/[\\/]/).slice(0, -1).join('\\');
-      if (parentPath) {
-        fileTabs.updateActivePath(parentPath);
+      isOpen = !isOpen;
+      if (isOpen && children.length === 0) {
+        await loadChildren();
       }
     }
   }
 
-  // Drag and drop handlers
   function handleDragEnter(event: DragEvent) {
     if (!isDir) return;
     
@@ -83,183 +81,146 @@
     
     event.preventDefault();
     event.stopPropagation();
-    
-    // Ensure isDragOver stays true during dragging
-    isDragOver = true;
-    
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "move";
-    }
   }
 
   function handleDragLeave(event: DragEvent) {
-    // Only clear if we're actually leaving this element
-    const relatedTarget = event.relatedTarget as HTMLElement;
-    const currentTarget = event.currentTarget as HTMLElement;
-    
-    // Check if we're leaving to a child element
-    if (relatedTarget && currentTarget.contains(relatedTarget)) {
-      return;
-    }
-    
     isDragOver = false;
   }
 
   async function handleDrop(event: DragEvent) {
-    if (!isDir) return;
-    
     event.preventDefault();
     event.stopPropagation();
     isDragOver = false;
 
+    if (!isDir) return;
+
     const state = $fileDragDrop;
     if (!state.draggedFile) return;
 
-    const destPath = path;
-    
-    // Get the active tab's path as the source directory
-    const activeTab = $fileTabs.tabs.find(t => t.id === $fileTabs.activeId);
-    const sourceDirPath = activeTab?.path;
-    
-    if (!sourceDirPath) return;
-    
-    // Don't drop into the same folder
-    if (destPath === sourceDirPath) {
-      console.log("⚠️ Cannot drop into the same folder");
-      return;
-    }
+    const sourcePath = state.draggedFilePath;
+    const targetPath = `${path}\\${state.draggedFile}`;
 
-    console.log(`📦 Moving ${state.draggedFiles.length} file(s) to:`, destPath);
-    console.log('Source directory:', sourceDirPath);
-    console.log('Destination directory:', destPath);
+    if (sourcePath === targetPath) return;
 
     try {
-      for (const fileName of state.draggedFiles) {
-        // Always construct the source path from current directory + filename
-        // Don't trust the cached path in draggedFilePaths since the file might have moved
-        const sourcePath = `${sourceDirPath}\\${fileName}`;
-        
-        // Safety check: don't move a folder into its own subdirectory
-        if (destPath.startsWith(sourcePath + '\\') || destPath.startsWith(sourcePath + '/')) {
-          alert(`Cannot move "${fileName}" into its own subdirectory`);
-          continue;
-        }
-        
-        console.log(`📦 MOVE_ITEM: source="${sourcePath}" destination="${destPath}"`);
-        const result = await invoke('move_item', { src: sourcePath, dest: destPath });
-        console.log('Move result:', result);
-      }
-      
-      // Invalidate cache for both source and destination
-      const { directoryCache } = await import('$lib/stores/directoryCacheStore');
-      directoryCache.invalidate(sourceDirPath);
-      directoryCache.invalidate(destPath);
-      
-      // Trigger immediate reload by navigating to same path with force
-      const currentPath = $fileTabs.tabs.find(t => t.id === $fileTabs.activeId)?.path;
-      if (currentPath === sourceDirPath || currentPath === destPath) {
-        // We're viewing either source or destination, force an update
-        window.dispatchEvent(new CustomEvent('force-file-refresh'));
-      }
-      
-      // Clear the drag state since files have moved
-      fileDragDrop.handleDragEnd();
-      
-      // Refresh this node if it's expanded
-      if (isOpen) {
-        children = [];
-        await loadChildren();
-      }
+      await invoke('move_item', { src: sourcePath, dest: path });
+      await loadChildren();
     } catch (err) {
-      console.error("❌ Move error:", err);
-      alert("Move failed: " + err);
+      console.error('Drop failed:', err);
     }
   }
 </script>
 
-{#if !isRoot}
-  <div 
-    class="file-item"
-    class:drag-over={isDragOver}
+<div class="file-node">
+  <button 
+    class="node-row"
     class:active={isActive}
+    class:drag-over={isDragOver}
     style="padding-left: {depth * 12 + 8}px"
-    on:click={toggle}
-    on:contextmenu={handleContextMenu}
-    on:keydown={(e) => e.key === 'Enter' && toggle()}
+    on:click={handleClick}
     on:dragenter={handleDragEnter}
     on:dragover={handleDragOver}
     on:dragleave={handleDragLeave}
     on:drop={handleDrop}
-    role="button"
-    tabindex="0"
+    title="Ctrl+Click to open in file manager"
   >
-    <span class="file-icon">
-      {#if isDir}
-        {isOpen ? '📂' : '📁'}
-      {:else}
-        📄
-      {/if}
-    </span>
-    <span class="file-name">{name}</span>
-  </div>
-{/if}
+    {#if isDir}
+      <span class="chevron" class:open={isOpen}>▶</span>
+      <span class="icon">📁</span>
+    {:else}
+      <span class="chevron-placeholder"></span>
+      <span class="icon">📄</span>
+    {/if}
+    <span class="name">{name}</span>
+  </button>
 
-{#if (isOpen || isRoot)}
-  {#if loading}
-    <div class="file-loading" style="padding-left: {(depth + 1) * 12 + 8}px">Loading...</div>
-  {:else}
-    {#each children as child}
-      <svelte:self 
-        name={child.name} 
-        path={child.path} 
-        isDir={child.is_dir} 
-        depth={isRoot ? depth : depth + 1}
-        isRoot={false}
-      />
-    {/each}
+  {#if isDir && isOpen}
+    <div class="children">
+      {#if loading}
+        <div class="loading" style="padding-left: {(depth + 1) * 12 + 8}px">Loading...</div>
+      {:else}
+        {#each children as child}
+          <svelte:self 
+            name={child.name} 
+            path={child.path} 
+            isDir={child.is_dir}
+            depth={depth + 1}
+          />
+        {/each}
+      {/if}
+    </div>
   {/if}
-{/if}
+</div>
 
 <style>
-  .file-item {
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-    padding: 4px 0;
-    white-space: nowrap;
-    color: var(--text-main); 
-    font-size: 13px;
-    transition: background 0.15s;
-  }
-
-  .file-item:hover {
-    background-color: var(--hover-bg);
-  }
-
-  .file-item.active {
-    background: rgba(59, 130, 246, 0.15);
-    color: #3b82f6;
-  }
-
-  .file-item.drag-over {
-    background: rgba(59, 130, 246, 0.2);
-    outline: 2px dashed #3b82f6;
-    outline-offset: -2px;
-  }
-
-  .file-icon {
-    margin-right: 6px;
-    font-size: 14px;
-  }
-
-  .file-name {
+  .file-node {
     user-select: none;
   }
 
-  .file-loading {
+  .node-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
     color: var(--text-muted);
+    font-size: 12px;
+    width: 100%;
+    text-align: left;
+    border-radius: 3px;
+    transition: background-color 0.1s;
+  }
+
+  .node-row:hover {
+    background-color: var(--hover-bg);
+    color: var(--text-main);
+  }
+
+  .node-row.active {
+    background-color: var(--selection);
+    color: var(--text-main);
+  }
+
+  .node-row.drag-over {
+    background-color: rgba(59, 130, 246, 0.3);
+    outline: 2px dashed #3b82f6;
+  }
+
+  .chevron {
+    font-size: 8px;
+    width: 12px;
+    transition: transform 0.15s;
+    color: var(--text-muted);
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .chevron-placeholder {
+    width: 12px;
+  }
+
+  .icon {
+    font-size: 14px;
+  }
+
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .children {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .loading {
     font-size: 11px;
-    font-style: italic;
-    padding: 4px 0;
+    color: var(--text-muted);
+    padding: 4px 8px;
   }
 </style>

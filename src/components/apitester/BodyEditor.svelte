@@ -1,10 +1,15 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  type BodyType = 'none' | 'json' | 'text' | 'form';
 
-  export let body: string = '';
-  export let bodyType: 'none' | 'json' | 'text' | 'form' = 'json';
-
-  const dispatch = createEventDispatcher();
+  let { 
+    body = '', 
+    bodyType = 'json' as BodyType,
+    onupdate = (data: { body: string; bodyType: BodyType }) => {}
+  }: {
+    body: string;
+    bodyType: BodyType;
+    onupdate?: (data: { body: string; bodyType: BodyType }) => void;
+  } = $props();
 
   const bodyTypes = [
     { value: 'none', label: 'None' },
@@ -14,11 +19,11 @@
   ];
 
   function updateBody(newBody: string) {
-    dispatch('update', { body: newBody, bodyType });
+    onupdate({ body: newBody, bodyType });
   }
 
-  function updateBodyType(newType: typeof bodyType) {
-    dispatch('update', { body, bodyType: newType });
+  function updateBodyType(newType: BodyType) {
+    onupdate({ body, bodyType: newType });
   }
 
   function formatJson() {
@@ -26,7 +31,7 @@
       const parsed = JSON.parse(body);
       updateBody(JSON.stringify(parsed, null, 2));
     } catch {
-      // Invalid JSON, don't format
+      // Invalid JSON
     }
   }
 
@@ -35,11 +40,11 @@
       const parsed = JSON.parse(body);
       updateBody(JSON.stringify(parsed));
     } catch {
-      // Invalid JSON, don't minify
+      // Invalid JSON
     }
   }
 
-  $: isValidJson = (() => {
+  let isValidJson = $derived((() => {
     if (bodyType !== 'json' || !body.trim()) return true;
     try {
       JSON.parse(body);
@@ -47,7 +52,7 @@
     } catch {
       return false;
     }
-  })();
+  })());
 </script>
 
 <div class="body-editor">
@@ -56,7 +61,7 @@
       <button 
         class="type-btn" 
         class:active={bodyType === type.value}
-        on:click={() => updateBodyType(type.value as typeof bodyType)}
+        onclick={() => updateBodyType(type.value as BodyType)}
       >
         {type.label}
       </button>
@@ -64,10 +69,10 @@
 
     {#if bodyType === 'json'}
       <div class="json-actions">
-        <button class="action-btn" on:click={formatJson} title="Format JSON">
+        <button class="action-btn" onclick={formatJson} title="Format JSON">
           Format
         </button>
-        <button class="action-btn" on:click={minifyJson} title="Minify JSON">
+        <button class="action-btn" onclick={minifyJson} title="Minify JSON">
           Minify
         </button>
       </div>
@@ -84,7 +89,7 @@
         class="body-textarea"
         class:error={!isValidJson}
         value={body}
-        on:input={(e) => updateBody((e.target as HTMLTextAreaElement).value)}
+        oninput={(e) => updateBody((e.target as HTMLTextAreaElement).value)}
         placeholder={bodyType === 'json' ? '{\n  "key": "value"\n}' : 'Enter request body...'}
         spellcheck="false"
       ></textarea>
