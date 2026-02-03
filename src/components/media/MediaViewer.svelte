@@ -1,20 +1,43 @@
 <script lang="ts">
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { mediaViewer } from "$lib/stores/mediaViewerStore";
   import ImageViewer from "./ImageViewer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
 
-  // Convert file path to web-compatible format and prepare metadata
-  $: mediaPath = $mediaViewer.filePath ? convertFileSrc($mediaViewer.filePath) : '';
+  let videoSrc = $state('');
+  let isTranscoding = $state(false);
+  let transcodeError = $state('');
+
+  $effect(() => {
+    if ($mediaViewer.isOpen && $mediaViewer.fileType === 'video' && $mediaViewer.filePath) {
+      loadVideo($mediaViewer.filePath);
+    }
+  });
+
+  async function loadVideo(filePath: string) {
+    isTranscoding = true;
+    transcodeError = '';
+    videoSrc = '';
+    
+    try {
+      const playablePath = await invoke<string>('get_playable_video', { path: filePath });
+      videoSrc = convertFileSrc(playablePath);
+    } catch (e) {
+      console.error('Failed to load video:', e);
+      transcodeError = String(e);
+    } finally {
+      isTranscoding = false;
+    }
+  }
+
+  let imagePath = $derived($mediaViewer.filePath ? convertFileSrc($mediaViewer.filePath) : '');
   
-  // For ImageViewer, we need to prepare metadata
-  // You can enhance this by actually reading file info
-  $: imageMeta = {
-    width: 0,  // Will be filled by img.onload
-    height: 0, // Will be filled by img.onload
-    size: '0 MB', // Could be calculated from file system
+  let imageMeta = $derived({
+    width: 0,
+    height: 0,
+    size: '0 MB',
     type: getFileExtension($mediaViewer.fileName || '')
-  };
+  });
   
   function getFileExtension(filename: string): string {
     const ext = filename.split('.').pop()?.toUpperCase() || '';
@@ -23,6 +46,9 @@
   
   function handleClose() {
     mediaViewer.close();
+    videoSrc = '';
+    isTranscoding = false;
+    transcodeError = '';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -46,15 +72,28 @@
     <div class="media-content">
       {#if $mediaViewer.fileType === 'image'}
         <ImageViewer 
-          src={mediaPath}
+          src={imagePath}
           filename={$mediaViewer.fileName || 'image'}
           meta={imageMeta}
         />
       {:else if $mediaViewer.fileType === 'video'}
-        <VideoPlayer 
-          src={mediaPath}
-          filename={$mediaViewer.fileName || 'video'}
-        />
+        {#if isTranscoding}
+          <div class="loading-container">
+            <div class="spinner"></div>
+            <p>Preparing video...</p>
+            <p class="hint">Transcoding to web-compatible format</p>
+          </div>
+        {:else if transcodeError}
+          <div class="error-container">
+            <p class="error-title">Failed to load video</p>
+            <p class="error-message">{transcodeError}</p>
+          </div>
+        {:else if videoSrc}
+          <VideoPlayer 
+            src={videoSrc}
+            filename={$mediaViewer.fileName || 'video'}
+          />
+        {/if}
       {/if}
     </div>
   </div>
@@ -100,5 +139,65 @@
   .media-content {
     width: 100%;
     height: 100%;
+  }
+
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: white;
+    gap: 16px;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .loading-container p {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .loading-container .hint {
+    font-size: 13px;
+    color: #888;
+  }
+
+  .error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: white;
+    gap: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .error-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #ef4444;
+    margin: 0;
+  }
+
+  .error-message {
+    font-size: 14px;
+    color: #888;
+    margin: 0;
+    max-width: 500px;
+    word-break: break-word;
   }
 </style>

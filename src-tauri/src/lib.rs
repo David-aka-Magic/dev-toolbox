@@ -27,6 +27,8 @@ pub fn run() {
             files::get_directory_size,
             files::get_directory_sizes,
             files::get_available_drives,
+            files::save_screenshot,
+            files::get_playable_video,
             
             file_settings::get_thumbnail_cache_size,
             file_settings::clear_thumbnail_cache,

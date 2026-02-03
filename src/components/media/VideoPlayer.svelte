@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { invoke } from '@tauri-apps/api/core';
+  import { settings } from '$lib/stores/settingsStore';
 
   export let src: string = '';
   export let filename: string = 'recording.mp4';
@@ -28,6 +30,9 @@
   let isLocked = false;
   let isFullscreen = false;
   let showVolumeSlider = false;
+  let volumeHoverTimeout: ReturnType<typeof setTimeout> | null = null;
+  let snapshotMessage = '';
+  let showSnapshotMessage = false;
 
   let videoAspect = 16/9;
   let containerAspect = 16/9;
@@ -36,9 +41,13 @@
   const FRAME_STEP = 1 / 30;
 
   onMount(() => {
+    volume = $settings.mediaDefaultVolume;
     updateContainerSize();
     window.addEventListener('resize', updateContainerSize);
-    return () => window.removeEventListener('resize', updateContainerSize);
+    return () => {
+      window.removeEventListener('resize', updateContainerSize);
+      if (volumeHoverTimeout) clearTimeout(volumeHoverTimeout);
+    };
   });
 
   function updateContainerSize() {
@@ -98,23 +107,62 @@
     video.play();
   }
 
-  function takeSnapshot() {
+  function showMessage(msg: string) {
+    snapshotMessage = msg;
+    showSnapshotMessage = true;
+    setTimeout(() => {
+      showSnapshotMessage = false;
+    }, 3000);
+  }
+
+  async function takeSnapshot() {
     if (!video) return;
+    
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataURL = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = dataURL;
-      const timestamp = formatTime(currentTime).replace(/:/g, '-').replace(/\./g, '_');
-      a.download = `${filename.replace(/\.[^/.]+$/, '')}_${timestamp}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    
+    if (!ctx) return;
+    
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const timestamp = formatTime(currentTime).replace(/:/g, '-').replace(/\./g, '_');
+    const baseFilename = filename.replace(/\.[^/.]+$/, '');
+    const snapshotFilename = `${baseFilename}_${timestamp}.png`;
+    
+    const screenshotPath = $settings.mediaScreenshotPath;
+    
+    if (screenshotPath && screenshotPath.trim() !== '') {
+      try {
+        const dataURL = canvas.toDataURL('image/png');
+        const base64Data = dataURL.split(',')[1];
+        const fullPath = `${screenshotPath}\\${snapshotFilename}`;
+        
+        await invoke('save_screenshot', { 
+          path: fullPath, 
+          data: base64Data 
+        });
+        
+        showMessage(`Saved: ${snapshotFilename}`);
+      } catch (e) {
+        console.error('Failed to save screenshot:', e);
+        showMessage(`Error: ${e}`);
+        fallbackDownload(canvas, snapshotFilename);
+      }
+    } else {
+      fallbackDownload(canvas, snapshotFilename);
     }
+  }
+
+  function fallbackDownload(canvas: HTMLCanvasElement, snapshotFilename: string) {
+    const dataURL = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataURL;
+    a.download = snapshotFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showMessage(`Downloaded: ${snapshotFilename}`);
   }
 
   function stepFrame(direction: number) {
@@ -142,6 +190,18 @@
       muted = false;
       video.muted = false;
     }
+  }
+
+  function handleVolumeMouseEnter() {
+    if (volumeHoverTimeout) clearTimeout(volumeHoverTimeout);
+    volumeHoverTimeout = setTimeout(() => {
+      showVolumeSlider = true;
+    }, 500);
+  }
+
+  function handleVolumeMouseLeave() {
+    if (volumeHoverTimeout) clearTimeout(volumeHoverTimeout);
+    showVolumeSlider = false;
   }
 
   function toggleLock() {
@@ -265,6 +325,12 @@
     ></video>
   </div>
 
+  {#if showSnapshotMessage}
+    <div class="snapshot-toast">
+      {snapshotMessage}
+    </div>
+  {/if}
+
   <div class="hud top">
     <span class="filename">{filename}</span>
     <span class="meta">{video?.videoWidth || 0}x{video?.videoHeight || 0}</span>
@@ -324,10 +390,11 @@
       <div class="group">
         <div 
           class="volume-control"
-          on:mouseenter={() => showVolumeSlider = true}
-          on:mouseleave={() => showVolumeSlider = false}
+          class:expanded={showVolumeSlider}
+          on:mouseenter={handleVolumeMouseEnter}
+          on:mouseleave={handleVolumeMouseLeave}
         >
-          <button class="icon-btn sm" on:click={toggleMute} title="Toggle Mute (M)">
+          <button class="icon-btn sm volume-btn" on:click={toggleMute} title="Toggle Mute (M)">
             {#if muted || volume === 0}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
             {:else if volume < 0.5}
@@ -337,20 +404,18 @@
             {/if}
           </button>
           
-          {#if showVolumeSlider}
-            <div class="volume-slider-popup">
-              <input 
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.01"
-                value={volume}
-                on:input={handleVolumeChange}
-                class="volume-slider"
-              />
-              <span class="volume-value">{Math.round(volume * 100)}%</span>
-            </div>
-          {/if}
+          <div class="volume-slider-container">
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.01"
+              value={volume}
+              on:input={handleVolumeChange}
+              class="volume-slider"
+            />
+            <span class="volume-value">{Math.round(volume * 100)}%</span>
+          </div>
         </div>
 
         <div class="separator"></div>
@@ -435,6 +500,28 @@
     max-width: 100%;
   }
 
+  .snapshot-toast {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(16, 185, 129, 0.95);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 100;
+    animation: fadeInOut 3s ease-in-out;
+  }
+
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  }
+
   .hud {
     position: absolute; 
     left: 50%; 
@@ -497,7 +584,7 @@
     accent-color: #3b82f6; 
     cursor: pointer; 
     position: relative; 
-    z-index: 10;
+    z-index: 1;
   }
   
   .loop-region {
@@ -507,14 +594,15 @@
     background: rgba(59, 130, 246, 0.5);
     border-left: 2px solid #3b82f6;
     border-right: 2px solid #3b82f6;
-    z-index: 5; 
+    z-index: 0; 
     pointer-events: none;
   }
 
   .controls-row { 
     display: flex; 
     justify-content: space-between; 
-    align-items: center; 
+    align-items: center;
+    position: relative;
   }
   .group { 
     display: flex; 
@@ -581,27 +669,39 @@
     margin: 0 5px; 
   }
 
+  /* Horizontal sliding volume control */
   .volume-control {
-    position: relative;
     display: flex;
     align-items: center;
+    gap: 0;
+    border-radius: 4px;
+    transition: background 0.2s;
   }
 
-  .volume-slider-popup {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(20, 20, 20, 0.95);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    padding: 12px 8px;
-    margin-bottom: 8px;
+  .volume-control:hover {
+    background: rgba(255,255,255,0.05);
+  }
+
+  .volume-btn {
+    flex-shrink: 0;
+  }
+
+  .volume-slider-container {
     display: flex;
-    flex-direction: column;
     align-items: center;
     gap: 8px;
+    overflow: hidden;
+    max-width: 0;
+    opacity: 0;
+    transition: max-width 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+    padding: 0;
+  }
+
+  .volume-control.expanded .volume-slider-container {
+    max-width: 140px;
+    opacity: 1;
+    padding-left: 8px;
+    padding-right: 4px;
   }
 
   .volume-slider {
@@ -609,11 +709,15 @@
     height: 4px;
     accent-color: #3b82f6;
     cursor: pointer;
+    flex-shrink: 0;
   }
 
   .volume-value {
     font-size: 11px;
     color: #888;
     font-family: monospace;
+    font-weight: 600;
+    min-width: 36px;
+    text-align: right;
   }
 </style>

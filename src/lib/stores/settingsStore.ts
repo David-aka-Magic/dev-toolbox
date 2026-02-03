@@ -50,6 +50,10 @@ interface Settings {
   apiMaxHistoryItems: number;
   apiAutoFormatJson: boolean;
   apiSaveToHistory: boolean;
+
+  // Media Player Settings
+  mediaScreenshotPath: string;
+  mediaDefaultVolume: number;
 }
 
 const defaultSettings: Settings = {
@@ -101,7 +105,10 @@ const defaultSettings: Settings = {
   apiMaxHistoryItems: 50,
   apiAutoFormatJson: true,
   apiSaveToHistory: true,
-  
+
+  // Media Player
+  mediaScreenshotPath: '',
+  mediaDefaultVolume: 1.0,
 };
 
 const stored = localStorage.getItem('app-settings');

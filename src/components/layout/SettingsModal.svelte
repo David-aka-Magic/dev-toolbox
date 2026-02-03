@@ -2,28 +2,25 @@
   import { tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   
-  // Stores
   import { isSettingsOpen, settings } from '$lib/stores/settingsStore';
   import { currentView } from '$lib/stores/viewStore';
   import { theme } from '$lib/stores/theme';
   import { viewMode, sortConfig } from '$lib/stores/viewModeStore';
 
-  // Components
   import Modal from '../ui/Modal.svelte';
   import SettingsSidebar from './SettingsSidebar.svelte';
   import Input from '../ui/forms/Input.svelte';
   import Select from '../ui/forms/Select.svelte';
   import Checkbox from '../ui/forms/Checkbox.svelte';
+  import FolderPickerModal from '../editor/FolderPickerModal.svelte';
 
-  // State
   let activeSection = $state('general');
   let scrollContainer: HTMLElement | undefined = $state();
   let isManualScroll = $state(false);
   let cacheSize = $state('Calculating...');
   let isClearingCache = $state(false);
+  let showFolderPicker = $state(false);
 
-  // === OPTIONS ===
-  
   const themeOptions = [
     { value: 'dark', label: 'Dark (Default)' },
     { value: 'light', label: 'Light' },
@@ -85,8 +82,6 @@
     { value: 'application/x-www-form-urlencoded', label: 'Form URL Encoded' }
   ];
 
-  // === EFFECTS ===
-
   $effect(() => {
     if ($isSettingsOpen) {
       let startSection = 'general';
@@ -100,8 +95,6 @@
       loadCacheSize();
     }
   });
-
-  // === FUNCTIONS ===
 
   async function loadCacheSize() {
     try {
@@ -180,8 +173,25 @@
     $sortConfig = { ...$sortConfig, direction: value };
   }
 
+  function openFolderPicker() {
+    showFolderPicker = true;
+  }
+
+  function handleFolderSelect(event: CustomEvent<string>) {
+    $settings.mediaScreenshotPath = event.detail;
+    showFolderPicker = false;
+  }
+
   function close() { $isSettingsOpen = false; }
 </script>
+
+{#if showFolderPicker}
+  <FolderPickerModal 
+    initialPath={$settings.mediaScreenshotPath || 'C:\\'}
+    on:select={handleFolderSelect}
+    on:cancel={() => showFolderPicker = false}
+  />
+{/if}
 
 <Modal 
   open={$isSettingsOpen} 
@@ -251,7 +261,6 @@
           <p>Control how files and folders are displayed.</p>
         </div>
 
-        <!-- Display Settings -->
         <h4 class="subsection-header">Display</h4>
         
         <div class="row">
@@ -309,7 +318,6 @@
           </div>
         </div>
 
-        <!-- Grid Icon Size Slider -->
         <div class="slider-group">
           <label class="slider-label">
             Grid Icon Size
@@ -334,7 +342,6 @@
         
         <div class="spacer-sm"></div>
 
-        <!-- Behavior Settings -->
         <h4 class="subsection-header">Behavior</h4>
 
         <Select 
@@ -347,7 +354,6 @@
 
         <div class="spacer-sm"></div>
 
-        <!-- Start Path Settings -->
         <h4 class="subsection-header">Start Location</h4>
         
         <Checkbox label="Remember last visited path" bind:checked={$settings.fileRememberLastPath} />
@@ -364,7 +370,6 @@
 
         <div class="spacer-sm"></div>
 
-        <!-- Folder Size Settings -->
         <h4 class="subsection-header">Folder Size Calculation</h4>
         
         <Checkbox label="Show folder size" bind:checked={$settings.fileShowFolderSize} />
@@ -395,7 +400,6 @@
 
         <div class="spacer-sm"></div>
 
-        <!-- Thumbnails & Previews -->
         <h4 class="subsection-header">Thumbnails & Previews</h4>
 
         <div class="slider-group">
@@ -473,7 +477,6 @@
 
         <div class="spacer-sm"></div>
 
-        <!-- Cache Management -->
         <h4 class="subsection-header">Cache Management</h4>
 
         <div class="slider-group">
@@ -508,11 +511,53 @@
             {isClearingCache ? 'Clearing...' : 'Clear Thumbnail Cache'}
           </button>
         </div>
+
+        <div class="spacer-sm"></div>
+
+        <h4 class="subsection-header">Media Player</h4>
+
+        <div class="form-group">
+          <label>Screenshot Save Path</label>
+          <div class="path-input-group">
+            <input 
+              type="text" 
+              class="text-input"
+              bind:value={$settings.mediaScreenshotPath}
+              placeholder="Leave empty to use browser download"
+            />
+            <button 
+              class="browse-btn"
+              onclick={openFolderPicker}
+              title="Browse for folder"
+            >
+              📁
+            </button>
+          </div>
+          <p class="hint">Screenshots will be saved to this folder. Leave empty to download via browser.</p>
+        </div>
+
+        <div class="slider-group">
+          <label class="slider-label">
+            Default Volume
+            <span class="slider-value">{Math.round($settings.mediaDefaultVolume * 100)}%</span>
+          </label>
+          <input 
+            type="range" 
+            min="0" 
+            max="1" 
+            step="0.05"
+            bind:value={$settings.mediaDefaultVolume}
+            class="slider"
+          />
+          <div class="slider-range">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
+        </div>
       </section>
 
       <hr class="divider" />
 
-      <!-- EDITOR -->
       <!-- EDITOR -->
       <section id="section-editor">
         <div class="section-header">
@@ -572,96 +617,94 @@
             />
           </div>
         {/if}
+      </section>
         
+      <hr class="divider" />
         
-        <hr class="divider" />
+      <!-- API TESTER -->
+      <section id="section-api">
+        <div class="section-header">
+          <h3>API Tester</h3>
+          <p>Configure HTTP request behavior and defaults.</p>
+        </div>
         
-     <!-- API TESTER -->
-     <section id="section-api">
-       <div class="section-header">
-         <h3>API Tester</h3>
-         <p>Configure HTTP request behavior and defaults.</p>
-       </div>
+        <h4 class="subsection-header">Request Defaults</h4>
         
-       <!-- Request Defaults -->
-       <h4 class="subsection-header">Request Defaults</h4>
+        <div class="row">
+          <div class="half">
+            <div class="form-group">
+              <label>Default Timeout (ms)</label>
+              <input 
+                type="number" 
+                class="number-input"
+                bind:value={$settings.apiDefaultTimeout}
+                min="1000"
+                max="300000"
+                step="1000"
+              />
+            </div>
+          </div>
+          <div class="half">
+            <Select 
+              label="Default Content-Type" 
+              options={contentTypeOptions} 
+              bind:value={$settings.apiDefaultContentType}
+            />
+          </div>
+        </div>
         
-       <div class="row">
-         <div class="half">
-           <div class="form-group">
-             <label>Default Timeout (ms)</label>
-             <input 
-               type="number" 
-               class="number-input"
-               bind:value={$settings.apiDefaultTimeout}
-               min="1000"
-               max="300000"
-               step="1000"
-             />
-           </div>
-         </div>
-         <div class="half">
-           <Select 
-             label="Default Content-Type" 
-             options={contentTypeOptions} 
-             bind:value={$settings.apiDefaultContentType}
-           />
-         </div>
-       </div>
+        <Checkbox 
+          label="Follow redirects automatically" 
+          bind:checked={$settings.apiFollowRedirects} 
+        />
         
-       <Checkbox 
-         label="Follow redirects automatically" 
-         bind:checked={$settings.apiFollowRedirects} 
-       />
+        <Checkbox 
+          label="Validate SSL certificates" 
+          bind:checked={$settings.apiValidateSSL} 
+        />
         
-       <Checkbox 
-         label="Validate SSL certificates" 
-         bind:checked={$settings.apiValidateSSL} 
-       />
+        <div class="spacer-sm"></div>
         
-       <div class="spacer-sm"></div>
+        <h4 class="subsection-header">Response Handling</h4>
         
-       <!-- Response Handling -->
-       <h4 class="subsection-header">Response Handling</h4>
+        <Checkbox 
+          label="Auto-format JSON responses" 
+          bind:checked={$settings.apiAutoFormatJson} 
+        />
         
-       <Checkbox 
-         label="Auto-format JSON responses" 
-         bind:checked={$settings.apiAutoFormatJson} 
-       />
+        <div class="spacer-sm"></div>
         
-       <div class="spacer-sm"></div>
+        <h4 class="subsection-header">History</h4>
         
-       <!-- History -->
-       <h4 class="subsection-header">History</h4>
+        <Checkbox 
+          label="Save requests to history" 
+          bind:checked={$settings.apiSaveToHistory} 
+        />
         
-       <Checkbox 
-         label="Save requests to history" 
-         bind:checked={$settings.apiSaveToHistory} 
-       />
-        
-       {#if $settings.apiSaveToHistory}
-         <div class="indent-group">
-           <div class="slider-group">
-             <label class="slider-label">
-               Maximum history items
-               <span class="slider-value">{$settings.apiMaxHistoryItems}</span>
-             </label>
-             <input 
-               type="range" 
-               min="10" 
-               max="200" 
-               step="10"
-               bind:value={$settings.apiMaxHistoryItems}
-               class="slider"
-             />
-             <div class="slider-range">
-               <span>10</span>
-               <span>200</span>
-             </div>
-           </div>
-         </div>
-       {/if}
-     </section>
+        {#if $settings.apiSaveToHistory}
+          <div class="indent-group">
+            <div class="slider-group">
+              <label class="slider-label">
+                Maximum history items
+                <span class="slider-value">{$settings.apiMaxHistoryItems}</span>
+              </label>
+              <input 
+                type="range" 
+                min="10" 
+                max="200" 
+                step="10"
+                bind:value={$settings.apiMaxHistoryItems}
+                class="slider"
+              />
+              <div class="slider-range">
+                <span>10</span>
+                <span>200</span>
+              </div>
+            </div>
+          </div>
+        {/if}
+      </section>
+
     </div>
   </div>
 
@@ -702,7 +745,6 @@
   .row { display: flex; gap: 20px; width: 100%; }
   .half { flex: 1; }
   
-  /* Slider Styles */
   .slider-group {
     display: flex;
     flex-direction: column;
@@ -783,11 +825,10 @@
   .btn-cancel:hover { background: var(--hover-bg); color: var(--text-main); }
   .btn-save { background: var(--border-focus); color: white; }
 
-  /* Inline form elements */
   .form-group { display: flex; flex-direction: column; gap: 8px; width: 100%; }
   .form-group label { font-size: 0.85rem; font-weight: 500; color: var(--text-main); }
   
-  .number-input, .select-input {
+  .number-input, .select-input, .text-input {
     background: var(--bg-main);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -801,10 +842,36 @@
     box-sizing: border-box;
   }
   
-  .number-input:focus, .select-input:focus { border-color: var(--border-focus); }
+  .number-input:focus, .select-input:focus, .text-input:focus { border-color: var(--border-focus); }
   .select-input { cursor: pointer; }
 
-  /* Cache management */
+  .path-input-group {
+    display: flex;
+    gap: 8px;
+  }
+
+  .path-input-group .text-input {
+    flex: 1;
+  }
+
+  .browse-btn {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 12px;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .browse-btn:hover {
+    background: var(--hover-bg);
+    border-color: var(--border-focus);
+  }
+
   .cache-actions {
     display: flex;
     justify-content: space-between;

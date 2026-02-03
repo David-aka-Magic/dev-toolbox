@@ -515,3 +515,98 @@ pub async fn generate_video_preview(
     .await
     .map_err(|e| format!("Task join error: {}", e))?
 }
+
+#[command]
+pub async fn save_screenshot(path: String, data: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = general_purpose::STANDARD
+            .decode(&data)
+            .map_err(|e| format!("Failed to decode base64: {}", e))?;
+        
+        // Ensure parent directory exists
+        if let Some(parent) = Path::new(&path).parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+        
+        fs::write(&path, bytes)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+        
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[command]
+pub async fn get_playable_video(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let path_lower = path.to_lowercase();
+        
+        // Common web-compatible formats - return as-is
+        if path_lower.ends_with(".mp4") 
+            || path_lower.ends_with(".webm") 
+            || path_lower.ends_with(".ogg") {
+            return Ok(path);
+        }
+        
+        // For .mov, .avi, .mkv and other formats, transcode to mp4
+        let ffmpeg_path = find_ffmpeg()?;
+        
+        // Create temp directory for transcoded videos
+        let temp_dir = std::env::temp_dir().join("dev-toolkit-video-transcode");
+        fs::create_dir_all(&temp_dir)
+            .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+        
+        // Create a hash of the original path + modified time for cache
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let source_modified = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        
+        let mut hasher = DefaultHasher::new();
+        path.hash(&mut hasher);
+        source_modified.hash(&mut hasher);
+        let hash = hasher.finish();
+        
+        let output_path = temp_dir.join(format!("{}.mp4", hash));
+        
+        // If already transcoded with same hash, return cached version
+        if output_path.exists() {
+            return Ok(output_path.to_string_lossy().to_string());
+        }
+        
+        // Transcode to H.264 MP4 (web compatible)
+        let output = create_ffmpeg_command(&ffmpeg_path)
+            .args([
+                "-i", &path,
+                "-c:v", "libx264",           // H.264 video codec
+                "-preset", "fast",            // Fast encoding  
+                "-crf", "18",                 // High quality (lower = better)
+                "-c:a", "aac",                // AAC audio
+                "-b:a", "192k",               // Audio bitrate
+                "-movflags", "+faststart",    // Enable streaming
+                "-pix_fmt", "yuv420p",        // Ensure compatibility
+                "-y",                         // Overwrite output
+                output_path.to_str().unwrap()
+            ])
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+        
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("FFmpeg transcoding failed: {}", stderr));
+        }
+        
+        Ok(output_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
