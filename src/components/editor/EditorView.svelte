@@ -40,6 +40,9 @@
   let saveStatus: 'saved' | 'saving' | 'unsaved' = 'saved';
   let autoSaveInterval: number;
   let currentLine = 1;
+  let currentColumn = 1;
+  let wordCount = 0;
+  let charCount = 0;
   
   $: activeTab = $editorTabs.find(t => t.id === $activeEditorTabId);
 
@@ -73,9 +76,6 @@
               editor.commands.insertContent(tabString);
               return true;
             }
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-              return false;
-            }
             return false;
           }
         }
@@ -92,10 +92,10 @@
           );
           saveStatus = 'unsaved';
         }
-        updateCurrentLine();
+        updateStats();
       },
       onSelectionUpdate: () => {
-        updateCurrentLine();
+        updateStats();
       }
     });
     
@@ -105,7 +105,7 @@
       }
     }, $settings.editorAutoSaveInterval * 1000);
     
-    document.addEventListener('keydown', handleGlobalKeydown);
+    document.addEventListener('keydown', handleGlobalKeydown, true);
   });
 
   onDestroy(() => {
@@ -115,7 +115,7 @@
     if (autoSaveInterval) {
       clearInterval(autoSaveInterval);
     }
-    document.removeEventListener('keydown', handleGlobalKeydown);
+    document.removeEventListener('keydown', handleGlobalKeydown, true);
   });
 
   $: if (editor && activeTab) {
@@ -126,15 +126,31 @@
     }
   }
   
-  function updateCurrentLine() {
+  function updateStats() {
     if (!editor) return;
+    
     const { from } = editor.state.selection;
+    
+    const textBeforeCursor = editor.state.doc.textBetween(0, from, '\n', '\n');
+    const lines = textBeforeCursor.split('\n');
+    currentLine = lines.length;
+    currentColumn = lines[lines.length - 1].length + 1;
+    
     const text = editor.getText();
-    const beforeCursor = text.substring(0, from);
-    currentLine = (beforeCursor.match(/\n/g) || []).length + 1;
+    wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+    charCount = text.length;
   }
   
   function handleGlobalKeydown(e: KeyboardEvent) {
+    // If editor is focused, let it handle arrow keys and don't let other handlers intercept
+    const editorElement = element?.querySelector('.ProseMirror');
+    const isEditorFocused = editorElement?.contains(document.activeElement) || document.activeElement === editorElement;
+    
+    if (isEditorFocused && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.stopPropagation();
+      return;
+    }
+    
     if (e.ctrlKey && e.key === 'k') {
       e.preventDefault();
       showCommandPalette = !showCommandPalette;
@@ -398,10 +414,12 @@
     </div>
     
     <EditorStatusBar 
-      {editor} 
       fileName={activeTab?.name || 'Untitled'}
-      filePath={activeTab?.path || ''}
       {saveStatus}
+      line={currentLine}
+      column={currentColumn}
+      {wordCount}
+      {charCount}
     />
   </div>
   
@@ -589,13 +607,14 @@
   }
 
   :global(.editor ul, .editor ol) {
-    padding-left: 2.5em;
+    padding-left: 0;
     margin: 0;
-    margin-left: 0.5em;
+    list-style-position: inside;
   }
 
   :global(.editor li) {
     margin-bottom: 0.25em;
+    padding-left: 0.5em;
   }
 
   :global(.editor li p) {
@@ -605,6 +624,7 @@
 
   :global(.editor ul ul, .editor ol ol, .editor ul ol, .editor ol ul) {
     margin-top: 0.25em;
+    padding-left: 1.5em;
   }
 
   :global(.editor .ProseMirror:focus) {

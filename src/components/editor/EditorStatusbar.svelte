@@ -1,36 +1,10 @@
 <script lang="ts">
-  import { Editor } from '@tiptap/core';
-  
-  export let editor: Editor | null = null;
   export let fileName: string = 'Untitled';
   export let saveStatus: 'saved' | 'saving' | 'unsaved' = 'saved';
-  export let filePath: string = '';
-  
-  let line = 1;
-  let column = 1;
-  let wordCount = 0;
-  let charCount = 0;
-  let language = 'plaintext';
-  
-  $: if (editor) {
-    updateStats();
-  }
-  
-  function updateStats() {
-    if (!editor) return;
-    
-    const { from } = editor.state.selection;
-    const text = editor.getText();
-    const beforeCursor = text.substring(0, from);
-    
-    line = (beforeCursor.match(/\n/g) || []).length + 1;
-    column = beforeCursor.length - beforeCursor.lastIndexOf('\n');
-    
-    wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-    charCount = text.length;
-    
-    language = detectLanguage(fileName);
-  }
+  export let line: number = 1;
+  export let column: number = 1;
+  export let wordCount: number = 0;
+  export let charCount: number = 0;
   
   function detectLanguage(name: string): string {
     const ext = name.split('.').pop()?.toLowerCase();
@@ -48,6 +22,8 @@
     };
     return langMap[ext || ''] || 'Text';
   }
+  
+  $: language = detectLanguage(fileName);
   
   $: statusColor = saveStatus === 'saved' ? 'var(--text-muted)' : 
                    saveStatus === 'saving' ? '#f59e0b' : 
