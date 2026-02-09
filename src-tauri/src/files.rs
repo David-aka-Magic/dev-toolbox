@@ -550,7 +550,6 @@ pub async fn get_playable_video(path: String) -> Result<String, String> {
             return Ok(path);
         }
         
-        // For .mov, .avi, .mkv and other formats, transcode to mp4
         let ffmpeg_path = find_ffmpeg()?;
         
         // Create temp directory for transcoded videos
@@ -582,17 +581,24 @@ pub async fn get_playable_video(path: String) -> Result<String, String> {
         }
         
         // Transcode to H.264 MP4 (web compatible)
+        // Key fixes for ProRes:
+        // - pix_fmt yuv420p: Convert from ProRes 4:2:2/4:4:4 to 4:2:0 (browser compatible)
+        // - vf scale: Ensure dimensions are even (required for H.264)
+        // - colorspace filters: Handle ProRes color space properly
         let output = create_ffmpeg_command(&ffmpeg_path)
             .args([
                 "-i", &path,
-                "-c:v", "libx264",           // H.264 video codec
-                "-preset", "fast",            // Fast encoding  
-                "-crf", "18",                 // High quality (lower = better)
-                "-c:a", "aac",                // AAC audio
-                "-b:a", "192k",               // Audio bitrate
-                "-movflags", "+faststart",    // Enable streaming
-                "-pix_fmt", "yuv420p",        // Ensure compatibility
-                "-y",                         // Overwrite output
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "18",
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",  // Ensure even dimensions + convert pixel format
+                "-color_primaries", "bt709",
+                "-color_trc", "bt709", 
+                "-colorspace", "bt709",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-movflags", "+faststart",
+                "-y",
                 output_path.to_str().unwrap()
             ])
             .stderr(std::process::Stdio::piped())
@@ -610,3 +616,5 @@ pub async fn get_playable_video(path: String) -> Result<String, String> {
     .await
     .map_err(|e| format!("Task join error: {}", e))?
 }
+
+

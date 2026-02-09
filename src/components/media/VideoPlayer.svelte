@@ -38,17 +38,37 @@
   let containerAspect = 16/9;
   let fitMode: 'width' | 'height' = 'width';
 
+  let showControls = true;
+  let mouseIdleTimeout: ReturnType<typeof setTimeout> | null = null;
+  const IDLE_TIMEOUT = 3000;
+
   const FRAME_STEP = 1 / 30;
 
   onMount(() => {
     volume = $settings.mediaDefaultVolume;
     updateContainerSize();
     window.addEventListener('resize', updateContainerSize);
+    resetIdleTimer();
     return () => {
       window.removeEventListener('resize', updateContainerSize);
+      if (mouseIdleTimeout) clearTimeout(mouseIdleTimeout);
       if (volumeHoverTimeout) clearTimeout(volumeHoverTimeout);
     };
   });
+
+  function resetIdleTimer() {
+    showControls = true;
+    if (mouseIdleTimeout) clearTimeout(mouseIdleTimeout);
+    mouseIdleTimeout = setTimeout(() => {
+      if (!paused) {
+        showControls = false;
+      }
+    }, IDLE_TIMEOUT);
+  }
+
+  function handleMouseMove() {
+    resetIdleTimer();
+  }
 
   function updateContainerSize() {
     if (container) {
@@ -73,8 +93,13 @@
   }
 
   function togglePlay() {
-    if (video.paused) video.play();
-    else video.pause();
+    if (video.paused) {
+      video.play();
+      resetIdleTimer();
+    } else {
+      video.pause();
+      showControls = true;
+    }
   }
 
   function handleTimeUpdate() {
@@ -253,6 +278,7 @@
   }
 
   function onMouseMove(e: MouseEvent) {
+    handleMouseMove();
     if (!panning || isLocked) return;
     e.preventDefault();
     pointX = e.clientX - startX;
@@ -284,6 +310,7 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    resetIdleTimer();
     if (e.key.toLowerCase() === 'i') setInPoint();
     if (e.key.toLowerCase() === 'o') setOutPoint();
     if (e.key.toLowerCase() === 's') takeSnapshot();
@@ -300,6 +327,7 @@
 <div 
   class="player-wrapper" 
   class:locked={isLocked}
+  class:hide-cursor={!showControls && !paused}
   bind:this={container}
   on:mousedown={onMouseDown}
   on:wheel|nonpassive={onWheel}
@@ -331,7 +359,7 @@
     </div>
   {/if}
 
-  <div class="hud top">
+  <div class="hud top" class:hidden={!showControls}>
     <span class="filename">{filename}</span>
     <span class="meta">{video?.videoWidth || 0}x{video?.videoHeight || 0}</span>
     {#if isLocked}
@@ -342,7 +370,7 @@
     {/if}
   </div>
 
-  <div class="hud bottom" on:mousedown|stopPropagation>
+  <div class="hud bottom" class:hidden={!showControls} on:mousedown|stopPropagation>
     
     <div class="scrubber-track">
       {#if isLooping && duration > 0}
@@ -476,6 +504,9 @@
   .player-wrapper.locked {
     cursor: default;
   }
+  .player-wrapper.hide-cursor {
+    cursor: none;
+  }
   .video-layer {
     width: 100%; 
     height: 100%;
@@ -531,6 +562,12 @@
     border: 1px solid rgba(255,255,255,0.1); 
     color: white; 
     pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+  }
+  .hud.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
   .top { 
     top: 20px; 
@@ -669,7 +706,6 @@
     margin: 0 5px; 
   }
 
-  /* Horizontal sliding volume control */
   .volume-control {
     display: flex;
     align-items: center;

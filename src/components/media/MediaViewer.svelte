@@ -10,23 +10,29 @@
 
   $effect(() => {
     if ($mediaViewer.isOpen && $mediaViewer.fileType === 'video' && $mediaViewer.filePath) {
+      console.log('[MediaViewer] Effect triggered, calling loadVideo');
       loadVideo($mediaViewer.filePath);
     }
   });
 
   async function loadVideo(filePath: string) {
+    console.log('[MediaViewer] loadVideo called with:', filePath);
     isTranscoding = true;
     transcodeError = '';
     videoSrc = '';
     
     try {
+      console.log('[MediaViewer] Calling get_playable_video...');
       const playablePath = await invoke<string>('get_playable_video', { path: filePath });
+      console.log('[MediaViewer] Got playable path:', playablePath);
       videoSrc = convertFileSrc(playablePath);
+      console.log('[MediaViewer] Final video src:', videoSrc);
     } catch (e) {
-      console.error('Failed to load video:', e);
+      console.error('[MediaViewer] Failed to load video:', e);
       transcodeError = String(e);
     } finally {
       isTranscoding = false;
+      console.log('[MediaViewer] isTranscoding set to false, videoSrc:', videoSrc);
     }
   }
 

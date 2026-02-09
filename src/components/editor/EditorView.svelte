@@ -64,6 +64,19 @@
           dblclick: (view, event) => {
             selectWord(event);
             return true;
+          },
+          keydown: (view, event) => {
+            if (event.key === 'Tab') {
+              event.preventDefault();
+              const tabSize = Number($settings.editorTabSize) || 4;
+              const tabString = ' '.repeat(tabSize);
+              editor.commands.insertContent(tabString);
+              return true;
+            }
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+              return false;
+            }
+            return false;
           }
         }
       },
@@ -86,14 +99,12 @@
       }
     });
     
-    // Auto-save setup
     autoSaveInterval = window.setInterval(() => {
       if (activeTab?.isDirty && $settings.editorAutoSave) {
         autoSave();
       }
     }, $settings.editorAutoSaveInterval * 1000);
     
-    // Keyboard shortcuts
     document.addEventListener('keydown', handleGlobalKeydown);
   });
 
@@ -124,28 +135,24 @@
   }
   
   function handleGlobalKeydown(e: KeyboardEvent) {
-    // Command Palette
     if (e.ctrlKey && e.key === 'k') {
       e.preventDefault();
       showCommandPalette = !showCommandPalette;
       return;
     }
     
-    // Toggle Sidebar
     if (e.ctrlKey && e.key === 'b') {
       e.preventDefault();
       showSidebar = !showSidebar;
       return;
     }
     
-    // Save
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault();
       saveFile();
       return;
     }
     
-    // Open
     if (e.ctrlKey && e.key === 'o') {
       e.preventDefault();
       openFile();
@@ -220,7 +227,6 @@
       editorTabs.update(tabs => [...tabs, newTab]);
       activeEditorTabId.set(newTab.id);
       
-      // Add to recent files
       recentFiles.addFile(filePath, fileName);
       saveStatus = 'saved';
     } catch (err) {
@@ -306,7 +312,6 @@
         )
       );
       
-      // Add to recent files
       recentFiles.addFile(filePath, fileName);
       saveStatus = 'saved';
     } catch (err) {
@@ -584,10 +589,29 @@
   }
 
   :global(.editor ul, .editor ol) {
-    padding-left: 1.5em;
+    padding-left: 2.5em;
+    margin: 0;
+    margin-left: 0.5em;
   }
 
   :global(.editor li) {
     margin-bottom: 0.25em;
+  }
+
+  :global(.editor li p) {
+    margin: 0;
+    display: inline;
+  }
+
+  :global(.editor ul ul, .editor ol ol, .editor ul ol, .editor ol ul) {
+    margin-top: 0.25em;
+  }
+
+  :global(.editor .ProseMirror:focus) {
+    outline: none;
+  }
+
+  :global(.editor .ProseMirror) {
+    cursor: text;
   }
 </style>
