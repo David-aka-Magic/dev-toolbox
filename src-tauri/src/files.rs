@@ -618,3 +618,83 @@ pub async fn get_playable_video(path: String) -> Result<String, String> {
 }
 
 
+#[derive(Serialize, Debug, Clone)]
+pub struct FileInfoResult {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: Option<u64>,
+    created: Option<u64>,
+    modified: Option<u64>,
+    accessed: Option<u64>,
+    readonly: bool,
+    hidden: bool,
+    item_count: Option<u64>,
+}
+
+#[command]
+pub async fn get_file_info(path: String) -> Result<FileInfoResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let p = Path::new(&path);
+        let meta = fs::metadata(&p).map_err(|e| format!("Failed to get metadata: {}", e))?;
+
+        let name = p.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+
+        let is_dir = meta.is_dir();
+
+        let size = if is_dir {
+            calculate_dir_size(&p)
+        } else {
+            Some(meta.len())
+        };
+
+        let created = meta.created().ok().and_then(|time| {
+            time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+        });
+
+        let modified = meta.modified().ok().and_then(|time| {
+            time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+        });
+
+        let accessed = meta.accessed().ok().and_then(|time| {
+            time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+        });
+
+        let readonly = meta.permissions().readonly();
+
+        let hidden = {
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::fs::MetadataExt;
+                meta.file_attributes() & 0x2 != 0
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                name.starts_with('.')
+            }
+        };
+
+        let item_count = if is_dir {
+            fs::read_dir(&p).ok().map(|entries| entries.count() as u64)
+        } else {
+            None
+        };
+
+        Ok(FileInfoResult {
+            name,
+            path: p.to_string_lossy().to_string(),
+            is_dir,
+            size,
+            created,
+            modified,
+            accessed,
+            readonly,
+            hidden,
+            item_count,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
