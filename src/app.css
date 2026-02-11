@@ -1,13 +1,16 @@
 /* src/app.css */
 :root {
+  /* Global Font - set dynamically by +layout.svelte */
+  --font-global: 'Segoe UI', sans-serif;
+
   /* DEFAULT (DARK) THEME VARIABLES */
-  --bg-main: #1e1e1e;          /* Main Viewport Background */
-  --bg-panel: #252526;         /* Sidebars / Panels */
-  --bg-header: #18181b;        /* TitleBar / NavBar */
-  --bg-input: #2d2d30;         /* Address Bar / Inputs */
+  --bg-main: #1e1e1e;
+  --bg-panel: #252526;
+  --bg-header: #18181b;
+  --bg-input: #2d2d30;
   
-  --border: #27272a;           /* Borders */
-  --border-focus: #3b82f6;     /* Blue focus rings */
+  --border: #27272a;
+  --border-focus: #3b82f6;
   
   --text-main: #ffffff;
   --text-muted: #9ca3af;
@@ -119,14 +122,28 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--global-font-family, 'Segoe UI', sans-serif);
+  font-family: var(--font-global);
   background-color: var(--bg-main);
   color: var(--text-main);
-  overflow: hidden; /* App shouldn't have body scrollbars */
+  overflow: hidden;
 }
 
 button { 
   font-family: inherit; 
+}
+
+/*
+  Apply the global font to all UI elements.
+  Excludes: terminal (.xterm), code blocks (pre, code), and monospace inputs (.url-input).
+  These keep their monospace fonts intentionally.
+*/
+:where(div, span, p, h1, h2, h3, h4, h5, h6, label, input, select, textarea, a, li, ul, ol, table, th, td, section, nav, header, footer, aside, main) {
+  font-family: var(--font-global);
+}
+
+/* Preserve monospace for code elements */
+pre, code, .url-input, .body-textarea, .header-key, .header-value, .time-readout, .volume-value, .command-shortcut {
+  font-family: 'Fira Code', monospace !important;
 }
 
 /* ===============================================

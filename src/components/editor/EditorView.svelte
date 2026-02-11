@@ -405,7 +405,7 @@
         class="editor" 
         bind:this={element}
         style="
-          font-family: {$settings.globalFontFamily};
+          font-family: '{$settings.globalFontFamily}', sans-serif;
           font-size: {$settings.editorFontSize}px;
           white-space: {$settings.editorWordWrap === 'on' ? 'pre-wrap' : 'pre'};
         "

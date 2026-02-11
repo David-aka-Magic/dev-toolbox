@@ -11,7 +11,8 @@
 
     settings.subscribe((s) => {
       if (s.globalFontFamily) {
-        document.body.style.fontFamily = `'${s.globalFontFamily}', 'Segoe UI', sans-serif`;
+        const fontStack = `'${s.globalFontFamily}', 'Segoe UI', sans-serif`;
+        document.documentElement.style.setProperty('--font-global', fontStack);
       }
     });
   });
