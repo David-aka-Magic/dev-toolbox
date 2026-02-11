@@ -13,6 +13,7 @@
   import Select from '../ui/forms/Select.svelte';
   import Checkbox from '../ui/forms/Checkbox.svelte';
   import FolderPickerModal from '../editor/FolderPickerModal.svelte';
+  import FontPicker from '../ui/forms/FontPicker.svelte';
 
   let activeSection = $state('general');
   let scrollContainer: HTMLElement | undefined = $state();
@@ -226,6 +227,11 @@
           options={themeOptions} 
           bind:value={$theme} 
         />
+
+        <FontPicker 
+          label="Font Family" 
+          bind:value={$settings.globalFontFamily} 
+        />
       </section>
 
       <hr class="divider" />
@@ -435,14 +441,23 @@
             </div>
           </div>
           <div class="half">
-            <div class="form-group">
-              <label>Video Preview Resolution</label>
-              <select bind:value={$settings.fileVideoPreviewResolution} class="select-input">
-                <option value={120}>120p (Fast)</option>
-                <option value={160}>160p (Default)</option>
-                <option value={240}>240p (Quality)</option>
-                <option value={320}>320p (High Quality)</option>
-              </select>
+            <div class="slider-group">
+              <label class="slider-label">
+                Cache Size Limit
+                <span class="slider-value">{$settings.fileThumbnailCacheSize} MB</span>
+              </label>
+              <input 
+                type="range" 
+                min="50" 
+                max="2000" 
+                step="50"
+                bind:value={$settings.fileThumbnailCacheSize}
+                class="slider"
+              />
+              <div class="slider-range">
+                <span>50 MB</span>
+                <span>2 GB</span>
+              </div>
             </div>
           </div>
         </div>
@@ -451,60 +466,54 @@
         
         {#if $settings.fileEnableVideoPreview}
           <div class="indent-group">
-            <div class="slider-group">
-              <label class="slider-label">
-                Preview Duration
-                <span class="slider-value">{$settings.fileVideoPreviewDuration}s</span>
-              </label>
-              <input 
-                type="range" 
-                min="1" 
-                max="10" 
-                step="1"
-                bind:value={$settings.fileVideoPreviewDuration}
-                class="slider"
-              />
-              <div class="slider-range">
-                <span>1s</span>
-                <span>10s</span>
+            <div class="row">
+              <div class="half">
+                <div class="slider-group">
+                  <label class="slider-label">
+                    Preview Duration
+                    <span class="slider-value">{$settings.fileVideoPreviewDuration}s</span>
+                  </label>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="10" 
+                    step="1"
+                    bind:value={$settings.fileVideoPreviewDuration}
+                    class="slider"
+                  />
+                </div>
+              </div>
+              <div class="half">
+                <div class="slider-group">
+                  <label class="slider-label">
+                    Preview Resolution
+                    <span class="slider-value">{$settings.fileVideoPreviewResolution}px</span>
+                  </label>
+                  <input 
+                    type="range" 
+                    min="80" 
+                    max="480" 
+                    step="40"
+                    bind:value={$settings.fileVideoPreviewResolution}
+                    class="slider"
+                  />
+                </div>
               </div>
             </div>
 
-            <Checkbox label="Use hardware acceleration" bind:checked={$settings.fileUseHardwareAccel} />
-            <p class="hint">Enable GPU acceleration for faster video preview generation. Disable if you experience issues.</p>
+            <Checkbox label="Use hardware acceleration (GPU)" bind:checked={$settings.fileUseHardwareAccel} />
           </div>
         {/if}
 
         <div class="spacer-sm"></div>
 
-        <h4 class="subsection-header">Cache Management</h4>
-
-        <div class="slider-group">
-          <label class="slider-label">
-            Thumbnail Cache Size Limit
-            <span class="slider-value">{$settings.fileThumbnailCacheSize} MB</span>
-          </label>
-          <input 
-            type="range" 
-            min="100" 
-            max="2000" 
-            step="100"
-            bind:value={$settings.fileThumbnailCacheSize}
-            class="slider"
-          />
-          <div class="slider-range">
-            <span>100 MB</span>
-            <span>2 GB</span>
-          </div>
-        </div>
-
         <div class="cache-actions">
           <div class="cache-info">
-            <span class="cache-label">Current cache usage:</span>
+            <span class="cache-label">Thumbnail Cache</span>
             <span class="cache-value">{cacheSize}</span>
           </div>
           <button 
-            class="btn-danger" 
+            class="btn-danger"
             onclick={clearThumbnailCache}
             disabled={isClearingCache}
           >
@@ -564,11 +573,6 @@
           <h3>Text Editor</h3>
           <p>Settings for code editing and viewing.</p>
         </div>
-
-        <Input 
-          label="Font Family" 
-          bind:value={$settings.editorFontFamily} 
-        />
         
         <div class="row">
           <div class="half">

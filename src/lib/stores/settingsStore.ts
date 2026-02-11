@@ -2,6 +2,9 @@ import { writable } from 'svelte/store';
 import type { ViewMode, SortField, SortDirection } from './viewModeStore';
 
 interface Settings {
+  // General / Appearance
+  globalFontFamily: string;
+
   // Terminal Settings
   termFontSize: number;
   termCursorStyle: 'block' | 'underline' | 'bar';
@@ -57,6 +60,9 @@ interface Settings {
 }
 
 const defaultSettings: Settings = {
+  // General / Appearance
+  globalFontFamily: 'Segoe UI',
+
   // Terminal
   termFontSize: 14,
   termCursorStyle: 'block',

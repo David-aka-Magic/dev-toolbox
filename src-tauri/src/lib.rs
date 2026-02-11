@@ -1,6 +1,7 @@
 mod terminal;
 mod files;
 mod file_settings;
+mod fonts;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +36,8 @@ pub fn run() {
             file_settings::get_folder_size,
             file_settings::count_files_in_directory,
             file_settings::enforce_cache_limit,
+
+            fonts::get_system_fonts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
