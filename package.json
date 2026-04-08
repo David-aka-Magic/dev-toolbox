@@ -20,6 +20,7 @@
     "@tiptap/extension-code-block-lowlight": "^3.16.0",
     "@tiptap/starter-kit": "^3.16.0",
     "highlight.js": "^11.11.1",
+    "html2canvas": "^1.4.1",
     "lowlight": "^3.3.0",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"

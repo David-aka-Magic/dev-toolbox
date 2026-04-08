@@ -1,54 +1,32 @@
 <script lang="ts">
   import { currentView } from '$lib/stores/viewStore';
-  import { isSettingsOpen } from '$lib/stores/settingsStore';
+  import { isSettingsOpen, settings } from '$lib/stores/settingsStore';
+
+  // SVG icon content keyed by nav item id
+  const iconPaths: Record<string, string> = {
+    terminal: `<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>`,
+    files: `<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>`,
+    editor: `<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>`,
+    planner: `<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>`,
+    api: `<path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path>`,
+    gantt: `<line x1="3" y1="6" x2="13" y2="6"/><line x1="3" y1="10" x2="18" y2="10"/><line x1="3" y1="14" x2="10" y2="14"/><line x1="3" y1="18" x2="15" y2="18"/>`,
+  };
 </script>
 
 <div class="navbar">
-  <button 
-    class:active={$currentView === 'terminal'} 
-    on:click={() => $currentView = 'terminal'}
-    title="Terminal"
-  >
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="4 17 10 11 4 5"></polyline>
-      <line x1="12" y1="19" x2="20" y2="19"></line>
-    </svg>
-  </button>
+  {#each $settings.navItems.filter(item => item.visible) as item}
+    <button
+      class:active={$currentView === item.id}
+      on:click={() => $currentView = item.id}
+      title={item.label}
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        {@html iconPaths[item.id] ?? ''}
+      </svg>
+    </button>
+  {/each}
 
-  <button 
-    class:active={$currentView === 'files'} 
-    on:click={() => $currentView = 'files'}
-    title="File Manager"
-  >
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-    </svg>
-  </button>
-
-  <button 
-    class:active={$currentView === 'editor'} 
-    on:click={() => $currentView = 'editor'}
-    title="Text Editor"
-  >
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-    </svg>
-  </button>
-
-  <button 
-    class:active={$currentView === 'api'} 
-    on:click={() => $currentView = 'api'}
-    title="API Tester"
-  >
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-      <path d="M2 17l10 5 10-5"></path>
-      <path d="M2 12l10 5 10-5"></path>
-    </svg>
-  </button>
-
-  <button 
+  <button
     class="settings-btn"
     on:click={() => $isSettingsOpen = true}
     title="Settings"
@@ -64,7 +42,7 @@
   .navbar {
     width: 48px;
     height: 100%;
-    background: var(--bg-header); 
+    background: var(--bg-header);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;

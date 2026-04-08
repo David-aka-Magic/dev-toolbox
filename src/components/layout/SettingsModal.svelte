@@ -83,13 +83,27 @@
     { value: 'application/x-www-form-urlencoded', label: 'Form URL Encoded' }
   ];
 
+  const ganttZoomOptions = [
+    { value: 'days',   label: 'Days' },
+    { value: 'weeks',  label: 'Weeks' },
+    { value: 'months', label: 'Months' },
+  ];
+
+  const ganttRowHeightOptions = [
+    { value: 24, label: 'Compact (24px)' },
+    { value: 32, label: 'Normal (32px)' },
+    { value: 36, label: 'Comfortable (36px)' },
+    { value: 40, label: 'Spacious (40px)' },
+  ];
+
   $effect(() => {
     if ($isSettingsOpen) {
       let startSection = 'general';
-      if ($currentView === 'editor') startSection = 'editor';
+      if ($currentView === 'editor')   startSection = 'editor';
       else if ($currentView === 'terminal') startSection = 'terminal';
       else if ($currentView === 'files') startSection = 'files';
-      else if ($currentView === 'api') startSection = 'api';
+      else if ($currentView === 'api')  startSection = 'api';
+      else if ($currentView === 'gantt') startSection = 'gantt';
       
       activeSection = startSection;
       scrollToSection(startSection);
@@ -145,8 +159,8 @@
 
   function handleScroll() {
     if (isManualScroll || !scrollContainer) return;
-    const sections = ['general', 'terminal', 'files', 'editor', 'api'];
-    const scrollPos = scrollContainer.scrollTop + 100; 
+    const sections = ['general', 'toolbar', 'terminal', 'files', 'editor', 'api', 'gantt'];
+    const scrollPos = scrollContainer.scrollTop + 100;
 
     for (const id of sections) {
       const el = document.getElementById(`section-${id}`);
@@ -155,6 +169,36 @@
       }
     }
   }
+
+  function moveNavItem(index: number, direction: -1 | 1) {
+    const newIndex = index + direction;
+    settings.update(s => {
+      if (newIndex < 0 || newIndex >= s.navItems.length) return s;
+      const items = [...s.navItems];
+      [items[index], items[newIndex]] = [items[newIndex], items[index]];
+      return { ...s, navItems: items };
+    });
+  }
+
+  function toggleNavItem(index: number) {
+    settings.update(s => {
+      const items = [...s.navItems];
+      const visibleCount = items.filter(it => it.visible).length;
+      if (items[index].visible && visibleCount <= 1) return s;
+      items[index] = { ...items[index], visible: !items[index].visible };
+      return { ...s, navItems: items };
+    });
+  }
+
+  $effect(() => {
+    const items = $settings.navItems;
+    if (!items) return;
+    const current = items.find(it => it.id === $currentView);
+    if (!current || !current.visible) {
+      const firstVisible = items.find(it => it.visible);
+      if (firstVisible) $currentView = firstVisible.id;
+    }
+  });
 
   function handleDefaultViewChange(e: Event) {
     const value = (e.target as HTMLSelectElement).value as 'grid' | 'list' | 'details';
@@ -232,6 +276,56 @@
           label="Font Family" 
           bind:value={$settings.globalFontFamily} 
         />
+      </section>
+
+      <hr class="divider" />
+
+      <!-- TOOLBAR -->
+      <section id="section-toolbar">
+        <div class="section-header">
+          <h3>Toolbar</h3>
+          <p>Customize which tools appear in the navigation bar and their order.</p>
+        </div>
+
+        {#each $settings.navItems as item, i}
+          <div class="nav-item-row">
+            <div class="nav-item-reorder">
+              <button
+                class="reorder-btn"
+                onclick={() => moveNavItem(i, -1)}
+                disabled={i === 0}
+                title="Move up"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              </button>
+              <button
+                class="reorder-btn"
+                onclick={() => moveNavItem(i, 1)}
+                disabled={i === $settings.navItems.length - 1}
+                title="Move down"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+            </div>
+            <span class="nav-item-label">{item.label}</span>
+            <label class="toggle" title={item.visible ? 'Hide from toolbar' : 'Show in toolbar'}>
+              <input
+                type="checkbox"
+                checked={item.visible}
+                onchange={() => toggleNavItem(i)}
+              />
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
+        {/each}
+
+        <p class="hint">At least one tool must remain visible.</p>
       </section>
 
       <hr class="divider" />
@@ -709,6 +803,61 @@
         {/if}
       </section>
 
+      <hr class="divider" />
+
+      <!-- GANTT CHART -->
+      <section id="section-gantt">
+        <div class="section-header">
+          <h3>Gantt Chart</h3>
+          <p>Configure default behavior and appearance for the Gantt chart tool.</p>
+        </div>
+
+        <h4 class="subsection-header">Defaults</h4>
+
+        <div class="row">
+          <div class="half">
+            <Select
+              label="Default Zoom Level"
+              options={ganttZoomOptions}
+              bind:value={$settings.ganttDefaultZoom}
+            />
+          </div>
+          <div class="half">
+            <div class="form-group">
+              <label>Default Task Duration (days)</label>
+              <input
+                type="number"
+                class="number-input"
+                bind:value={$settings.ganttDefaultTaskDuration}
+                min="1"
+                max="365"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Default Task Color</label>
+          <div class="color-row">
+            <input type="color" class="color-swatch-input" bind:value={$settings.ganttDefaultTaskColor} />
+            <span class="color-hex">{$settings.ganttDefaultTaskColor}</span>
+          </div>
+        </div>
+
+        <div class="spacer-sm"></div>
+        <h4 class="subsection-header">Display</h4>
+
+        <Select
+          label="Row Height"
+          options={ganttRowHeightOptions}
+          bind:value={$settings.ganttRowHeight}
+        />
+
+        <Checkbox label="Show progress bars on task bars" bind:checked={$settings.ganttShowProgressBars} />
+        <Checkbox label="Show weekends in day view" bind:checked={$settings.ganttShowWeekends} />
+        <Checkbox label="Snap to grid when dragging" bind:checked={$settings.ganttSnapToGrid} />
+      </section>
+
     </div>
   </div>
 
@@ -923,5 +1072,114 @@
   .btn-danger:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  /* Toolbar section */
+  .nav-item-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .nav-item-reorder {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .reorder-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    line-height: 1;
+  }
+
+  .reorder-btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+    color: var(--text-main);
+    border-color: var(--border-focus);
+  }
+
+  .reorder-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
+  .nav-item-label {
+    flex: 1;
+    font-size: 0.95rem;
+    color: var(--text-main);
+  }
+
+  /* Toggle switch */
+  .toggle {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .toggle input {
+    display: none;
+  }
+
+  .toggle-track {
+    width: 36px;
+    height: 20px;
+    background: var(--border);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track {
+    background: var(--border-focus);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(16px);
+  }
+
+  /* Gantt color input */
+  .color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .color-swatch-input {
+    width: 40px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: none;
+    cursor: pointer;
+    padding: 2px;
+  }
+  .color-hex {
+    font-family: monospace;
+    font-size: 0.88rem;
+    color: var(--text-muted);
   }
 </style>

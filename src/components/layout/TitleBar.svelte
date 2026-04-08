@@ -40,6 +40,16 @@
     {:else if $currentView === 'editor'}
       <EditorTabs />
 
+    {:else if $currentView === 'planner'}
+      <div class="spacer" data-tauri-drag-region>
+        <span class="view-title">PLANNER</span>
+      </div>
+
+    {:else if $currentView === 'gantt'}
+      <div class="spacer" data-tauri-drag-region>
+        <span class="view-title">GANTT</span>
+      </div>
+
     {:else}
       <div class="spacer" data-tauri-drag-region>
         <span class="view-title">{$currentView.toUpperCase()}</span>

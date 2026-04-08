@@ -2,17 +2,32 @@ mod terminal;
 mod files;
 mod file_settings;
 mod fonts;
+mod planner_db;
+mod planner_commands;
+mod gantt_db;
+mod gantt_commands;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(terminal::TerminalState::default())
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let conn = planner_db::initialize(&data_dir.join("planner.db"))?;
+            app.manage(planner_db::PlannerDb(std::sync::Mutex::new(conn)));
+            let gconn = gantt_db::initialize(&data_dir.join("gantt.db"))?;
+            app.manage(gantt_db::GanttDb(std::sync::Mutex::new(gconn)));
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             terminal::spawn_terminal,
             terminal::write_to_terminal,
             terminal::resize_terminal,
-            
+
             files::read_directory,
             files::delete_item,
             files::rename_item,
@@ -31,7 +46,7 @@ pub fn run() {
             files::save_screenshot,
             files::get_playable_video,
             files::get_file_info,
-            
+
             file_settings::get_thumbnail_cache_size,
             file_settings::clear_thumbnail_cache,
             file_settings::get_folder_size,
@@ -39,6 +54,52 @@ pub fn run() {
             file_settings::enforce_cache_limit,
 
             fonts::get_system_fonts,
+
+            planner_commands::get_events,
+            planner_commands::create_event,
+            planner_commands::update_event,
+            planner_commands::delete_event,
+            planner_commands::get_recurring_event_instances,
+
+            planner_commands::get_tasks,
+            planner_commands::create_task,
+            planner_commands::update_task,
+            planner_commands::delete_task,
+            planner_commands::reorder_tasks,
+            planner_commands::toggle_task,
+
+            planner_commands::get_task_lists,
+            planner_commands::create_task_list,
+            planner_commands::update_task_list,
+            planner_commands::delete_task_list,
+
+            planner_commands::get_time_blocks,
+            planner_commands::create_time_block,
+            planner_commands::update_time_block,
+            planner_commands::delete_time_block,
+
+            gantt_commands::get_gantt_projects,
+            gantt_commands::get_gantt_project,
+            gantt_commands::create_gantt_project,
+            gantt_commands::update_gantt_project,
+            gantt_commands::delete_gantt_project,
+
+            gantt_commands::get_gantt_tasks,
+            gantt_commands::create_gantt_task,
+            gantt_commands::update_gantt_task,
+            gantt_commands::delete_gantt_task,
+            gantt_commands::reorder_gantt_tasks,
+            gantt_commands::batch_update_gantt_tasks,
+
+            gantt_commands::get_gantt_dependencies,
+            gantt_commands::create_gantt_dependency,
+            gantt_commands::delete_gantt_dependency,
+            gantt_commands::validate_dependencies,
+
+            gantt_commands::get_gantt_milestones,
+            gantt_commands::create_gantt_milestone,
+            gantt_commands::update_gantt_milestone,
+            gantt_commands::delete_gantt_milestone,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

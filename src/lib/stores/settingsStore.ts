@@ -1,6 +1,13 @@
 import { writable } from 'svelte/store';
 import type { ViewMode, SortField, SortDirection } from './viewModeStore';
 
+export interface NavItem {
+  id: string;
+  label: string;
+  icon: string;
+  visible: boolean;
+}
+
 interface Settings {
   // General / Appearance
   globalFontFamily: string;
@@ -57,6 +64,18 @@ interface Settings {
   // Media Player Settings
   mediaScreenshotPath: string;
   mediaDefaultVolume: number;
+
+  // Gantt Chart Settings
+  ganttDefaultZoom: 'days' | 'weeks' | 'months';
+  ganttShowWeekends: boolean;
+  ganttDefaultTaskColor: string;
+  ganttDefaultTaskDuration: number;
+  ganttShowProgressBars: boolean;
+  ganttSnapToGrid: boolean;
+  ganttRowHeight: 24 | 32 | 36 | 40;
+
+  // Toolbar / Navigation
+  navItems: NavItem[];
 }
 
 const defaultSettings: Settings = {
@@ -115,10 +134,38 @@ const defaultSettings: Settings = {
   // Media Player
   mediaScreenshotPath: '',
   mediaDefaultVolume: 1.0,
+
+  // Gantt Chart
+  ganttDefaultZoom: 'weeks',
+  ganttShowWeekends: true,
+  ganttDefaultTaskColor: '#3b82f6',
+  ganttDefaultTaskDuration: 7,
+  ganttShowProgressBars: true,
+  ganttSnapToGrid: true,
+  ganttRowHeight: 36,
+
+  // Toolbar / Navigation
+  navItems: [
+    { id: 'terminal', label: 'Terminal', icon: 'terminal', visible: true },
+    { id: 'files', label: 'File Manager', icon: 'folder', visible: true },
+    { id: 'editor', label: 'Editor', icon: 'code', visible: true },
+    { id: 'planner', label: 'Planner', icon: 'calendar', visible: true },
+    { id: 'gantt', label: 'Gantt Chart', icon: 'gantt', visible: true },
+    { id: 'api', label: 'API Tester', icon: 'api', visible: true },
+  ],
 };
 
 const stored = localStorage.getItem('app-settings');
-const initial = stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings;
+let initial = stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings;
+
+// Ensure any nav items added since the user's last session are present.
+if (stored) {
+  const knownIds = new Set(initial.navItems.map((it: NavItem) => it.id));
+  const missing = defaultSettings.navItems.filter(it => !knownIds.has(it.id));
+  if (missing.length > 0) {
+    initial = { ...initial, navItems: [...initial.navItems, ...missing] };
+  }
+}
 
 export const settings = writable<Settings>(initial);
 export const isSettingsOpen = writable(false);

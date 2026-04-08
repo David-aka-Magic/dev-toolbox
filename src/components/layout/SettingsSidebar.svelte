@@ -4,10 +4,12 @@
 
   const sections = [
     { id: 'general', label: 'General', icon: 'settings' },
+    { id: 'toolbar', label: 'Toolbar', icon: 'toolbar' },
     { id: 'terminal', label: 'Terminal', icon: 'terminal' },
     { id: 'files', label: 'Filesystem', icon: 'folder' },
     { id: 'editor', label: 'Editor', icon: 'code' },
-    { id: 'api', label: 'API Tester', icon: 'api' }
+    { id: 'api', label: 'API Tester', icon: 'api' },
+    { id: 'gantt', label: 'Gantt Chart', icon: 'gantt' },
   ];
 
   function handleClick(id: string) {

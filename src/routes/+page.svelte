@@ -12,6 +12,8 @@
   import FileNavigator from '../components/filesystem/FileNavigator.svelte';
   import EditorView from '../components/editor/EditorView.svelte';
   import ApiTester from '../components/apitester/ApiTester.svelte';
+  import PlannerView from '../components/planner/PlannerView.svelte';
+  import GanttView from '../components/gantt/GanttView.svelte';
 </script>
 
 <SettingsModal />
@@ -51,6 +53,14 @@
 
       <div class="view-layer" style:display={$currentView === 'api' ? 'block' : 'none'}>
          <ApiTester />
+      </div>
+
+      <div class="view-layer" style:display={$currentView === 'planner' ? 'block' : 'none'}>
+        <PlannerView />
+      </div>
+
+      <div class="view-layer" style:display={$currentView === 'gantt' ? 'block' : 'none'}>
+        <GanttView />
       </div>
     </div>
   </div>
