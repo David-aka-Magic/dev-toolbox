@@ -7,6 +7,7 @@ mod planner_commands;
 mod gantt_db;
 mod gantt_commands;
 
+use log::{debug, error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::image::Image;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
@@ -25,13 +26,44 @@ fn set_close_to_tray(enabled: bool) {
 pub fn run() {
     tauri::Builder::default()
         .manage(terminal::TerminalState::default())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .level(log::LevelFilter::Debug)
+                .build(),
+        )
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let conn = planner_db::initialize(&data_dir.join("planner.db"))?;
+            info!("setup: starting");
+
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| { error!("setup: app_data_dir() failed: {e}"); e })?;
+            info!("setup: app_data_dir = {:?}", data_dir);
+
+            debug!("setup: creating app data directory");
+            std::fs::create_dir_all(&data_dir)
+                .map_err(|e| { error!("setup: create_dir_all({:?}) failed: {e}", data_dir); e })?;
+            debug!("setup: app data directory ready");
+
+            let planner_path = data_dir.join("planner.db");
+            debug!("setup: initializing planner DB at {:?}", planner_path);
+            let conn = planner_db::initialize(&planner_path)
+                .map_err(|e| { error!("setup: planner_db::initialize failed: {e}"); e })?;
             app.manage(planner_db::PlannerDb(std::sync::Mutex::new(conn)));
-            let gconn = gantt_db::initialize(&data_dir.join("gantt.db"))?;
+            info!("setup: planner DB initialized");
+
+            let gantt_path = data_dir.join("gantt.db");
+            debug!("setup: initializing gantt DB at {:?}", gantt_path);
+            let gconn = gantt_db::initialize(&gantt_path)
+                .map_err(|e| { error!("setup: gantt_db::initialize failed: {e}"); e })?;
             app.manage(gantt_db::GanttDb(std::sync::Mutex::new(gconn)));
+            info!("setup: gantt DB initialized");
 
             // ── System tray ──────────────────────────────────────────────
             let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
@@ -46,8 +78,12 @@ pub fn run() {
                 .item(&quit_item)
                 .build()?;
 
-            let tray_icon = Image::from_path("icons/tray-icon.png")
-                .unwrap_or_else(|_| Image::from_path("icons/32x32.png").expect("fallback icon"));
+            let tray_icon =
+                Image::from_bytes(include_bytes!("../icons/tray-icon.png"))
+                    .unwrap_or_else(|_| {
+                        Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                            .expect("fallback icon must be a valid PNG")
+                    });
 
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)

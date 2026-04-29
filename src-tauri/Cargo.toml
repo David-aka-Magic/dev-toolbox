@@ -19,7 +19,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.8"
@@ -32,3 +34,7 @@ windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = "0.4"
 tauri-plugin-notification = "2"
+
+[profile.release]
+debug = true
+strip = false
