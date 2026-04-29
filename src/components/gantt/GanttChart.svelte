@@ -178,7 +178,6 @@
   let minimapDragging     = $state(false);
   let _mmDragStartX       = 0;
   let _mmDragStartScroll  = 0;
-  let minimapScale        = $derived(minimapWidth / Math.max(1, columns.length * colW));
 
   // Undo stack
   interface UndoEntry { tasks: GanttTask[] }
@@ -271,6 +270,7 @@
   }
 
   const colW = $derived(COL_W[$zoomLevel] ?? 100);
+  let minimapScale = $derived(minimapWidth / Math.max(1, columns.length * colW));
 
   // px per day at current zoom
   const pxPerDay = $derived(
@@ -1410,8 +1410,8 @@
               onclick={() => selectedTaskId.set(row.task.id === $selectedTaskId ? null : row.task.id)}
               ondblclick={() => openTaskModal(row.task)}
               ondragstart={() => (dndRowId = row.task.id)}
-              ondragover|preventDefault={() => (dndOverId = row.task.id)}
-              ondrop|preventDefault={() => handleDrop(row.task.id)}
+              ondragover={(e) => { e.preventDefault(); dndOverId = row.task.id; }}
+              ondrop={(e) => { e.preventDefault(); handleDrop(row.task.id); }}
               ondragend={() => { dndRowId = null; dndOverId = null; }}
               role="row"
               tabindex="0"
@@ -1754,7 +1754,7 @@
   {#if autoScheduleConfirm}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="autosched-overlay" onclick={() => (autoScheduleConfirm = null)}>
-      <div class="autosched-popover" onclick|stopPropagation>
+      <div class="autosched-popover" onclick={(e) => e.stopPropagation()}>
         <p class="autosched-msg">
           This will shift <strong>{autoScheduleConfirm.affectedIds.length}</strong> dependent
           task{autoScheduleConfirm.affectedIds.length > 1 ? 's' : ''} forward by
@@ -1771,7 +1771,7 @@
   <!-- ── Context menu (fixed) ── -->
   {#if contextMenu}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="ctx-menu" style:left="{contextMenu.x}px" style:top="{contextMenu.y}px" onclick|stopPropagation>
+    <div class="ctx-menu" style:left="{contextMenu.x}px" style:top="{contextMenu.y}px" onclick={(e) => e.stopPropagation()}>
 
       {#if contextMenu.page === 'main'}
         <button class="ctx-item" onclick={ctxEdit}>
@@ -1816,10 +1816,10 @@
         </button>
         <div class="ctx-section-label">Select predecessor:</div>
         <div class="ctx-dep-list">
-          {#each $tasks.filter(t => t.id !== contextMenu.taskId) as t}
+          {#each $tasks.filter(t => t.id !== contextMenu!.taskId) as t}
             <button class="ctx-item" onclick={() => ctxAddDep(t.id)}>{t.title}</button>
           {/each}
-          {#if $tasks.filter(t => t.id !== contextMenu.taskId).length === 0}
+          {#if $tasks.filter(t => t.id !== contextMenu!.taskId).length === 0}
             <span class="ctx-empty">No other tasks</span>
           {/if}
         </div>
@@ -1831,7 +1831,7 @@
   <!-- ── Dep context menu (fixed) ── -->
   {#if depCtxMenu}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="ctx-menu" style:left="{depCtxMenu.x}px" style:top="{depCtxMenu.y}px" onclick|stopPropagation>
+    <div class="ctx-menu" style:left="{depCtxMenu.x}px" style:top="{depCtxMenu.y}px" onclick={(e) => e.stopPropagation()}>
 
       {#if depCtxMenu.page === 'main'}
         {@const fromTask = $tasks.find(t => t.id === depCtxMenu!.dep.from_task_id)}

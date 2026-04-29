@@ -9,6 +9,7 @@
     { id: 'files', label: 'Filesystem', icon: 'folder' },
     { id: 'editor', label: 'Editor', icon: 'code' },
     { id: 'api', label: 'API Tester', icon: 'api' },
+    { id: 'planner', label: 'Planner', icon: 'calendar' },
     { id: 'gantt', label: 'Gantt Chart', icon: 'gantt' },
   ];
 

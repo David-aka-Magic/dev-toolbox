@@ -103,6 +103,7 @@
       else if ($currentView === 'terminal') startSection = 'terminal';
       else if ($currentView === 'files') startSection = 'files';
       else if ($currentView === 'api')  startSection = 'api';
+      else if ($currentView === 'planner') startSection = 'planner';
       else if ($currentView === 'gantt') startSection = 'gantt';
       
       activeSection = startSection;
@@ -159,7 +160,7 @@
 
   function handleScroll() {
     if (isManualScroll || !scrollContainer) return;
-    const sections = ['general', 'toolbar', 'terminal', 'files', 'editor', 'api', 'gantt'];
+    const sections = ['general', 'toolbar', 'terminal', 'files', 'editor', 'api', 'planner', 'gantt'];
     const scrollPos = scrollContainer.scrollTop + 100;
 
     for (const id of sections) {
@@ -272,10 +273,15 @@
           bind:value={$theme} 
         />
 
-        <FontPicker 
-          label="Font Family" 
-          bind:value={$settings.globalFontFamily} 
+        <FontPicker
+          label="Font Family"
+          bind:value={$settings.globalFontFamily}
         />
+
+        <div class="spacer-sm"></div>
+        <h4 class="subsection-header">Window</h4>
+
+        <Checkbox label="Minimize to system tray on close" bind:checked={$settings.closeToTray} />
       </section>
 
       <hr class="divider" />
@@ -801,6 +807,32 @@
             </div>
           </div>
         {/if}
+      </section>
+
+      <hr class="divider" />
+
+      <!-- PLANNER -->
+      <section id="section-planner">
+        <div class="section-header">
+          <h3>Planner</h3>
+          <p>Configure notifications and reminders for events and tasks.</p>
+        </div>
+
+        <h4 class="subsection-header">Notifications</h4>
+
+        <Checkbox label="Enable desktop notifications" bind:checked={$settings.plannerNotificationsEnabled} />
+
+        <div class="form-group">
+          <label>Notify before event (minutes)</label>
+          <input
+            type="number"
+            class="number-input"
+            bind:value={$settings.plannerNotifyMinutesBefore}
+            min="1"
+            max="60"
+            disabled={!$settings.plannerNotificationsEnabled}
+          />
+        </div>
       </section>
 
       <hr class="divider" />

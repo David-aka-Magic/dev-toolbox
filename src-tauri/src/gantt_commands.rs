@@ -304,10 +304,11 @@ pub fn get_gantt_project(
                  ORDER  BY sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![id], row_to_task)
+        let x = stmt.query_map(params![id], row_to_task)
             .map_err(|e| e.to_string())?
             .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     let dependencies = {
@@ -318,10 +319,11 @@ pub fn get_gantt_project(
                  WHERE  project_id = ?1",
             )
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![id], row_to_dependency)
+        let x = stmt.query_map(params![id], row_to_dependency)
             .map_err(|e| e.to_string())?
             .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     let milestones = {
@@ -334,10 +336,11 @@ pub fn get_gantt_project(
                  ORDER  BY date ASC, sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![id], row_to_milestone)
+        let x = stmt.query_map(params![id], row_to_milestone)
             .map_err(|e| e.to_string())?
             .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     Ok(GanttProjectDetail { project, tasks, dependencies, milestones })
@@ -678,22 +681,24 @@ pub fn create_gantt_dependency(
                  WHERE  project_id = ?1",
             )
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![dep.project_id], |row| {
+        let x = stmt.query_map(params![dep.project_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(|e| e.to_string())?
         .map(|r| r.map_err(|e| e.to_string()))
-        .collect::<Result<Vec<_>, _>>()?
+        .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     let task_ids: Vec<String> = {
         let mut stmt = conn
             .prepare("SELECT id FROM gantt_tasks WHERE project_id = ?1")
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![dep.project_id], |row| row.get(0))
+        let x = stmt.query_map(params![dep.project_id], |row| row.get(0))
             .map_err(|e| e.to_string())?
             .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     let mut trial_edges = existing_edges;
@@ -755,10 +760,11 @@ pub fn validate_dependencies(
         let mut stmt = conn
             .prepare("SELECT id FROM gantt_tasks WHERE project_id = ?1")
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![project_id], |row| row.get(0))
+        let x = stmt.query_map(params![project_id], |row| row.get(0))
             .map_err(|e| e.to_string())?
             .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     let edges: Vec<(String, String)> = {
@@ -769,12 +775,13 @@ pub fn validate_dependencies(
                  WHERE  project_id = ?1",
             )
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![project_id], |row| {
+        let x = stmt.query_map(params![project_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(|e| e.to_string())?
         .map(|r| r.map_err(|e| e.to_string()))
-        .collect::<Result<Vec<_>, _>>()?
+        .collect::<Result<Vec<_>, _>>()?;
+        x
     };
 
     Ok(detect_cycles(&task_ids, &edges))

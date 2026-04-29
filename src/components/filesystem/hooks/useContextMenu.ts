@@ -22,6 +22,7 @@ export function getMenuOptions(
       return [
         { label: 'Open', action: 'open' },
         { label: 'Open in New Tab', action: 'open_new_tab' },
+        { label: 'Open with Default App', action: 'open_default' },
         { label: 'SEPARATOR', action: '' },
         { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
         { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
@@ -36,6 +37,7 @@ export function getMenuOptions(
       return [
         { label: 'Open', action: 'open' },
         { label: 'Open in Editor', action: 'open_in_editor' },
+        { label: 'Open with Default App', action: 'open_default' },
         { label: 'SEPARATOR', action: '' },
         { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
         { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },

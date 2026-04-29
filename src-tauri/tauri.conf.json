@@ -43,8 +43,12 @@
             "core:path:default",
             "core:event:default",
             "core:app:default",
+            "core:window:allow-hide",
+            "core:window:allow-show",
+            "opener:default",
             "dialog:allow-open",
-            "dialog:allow-save"
+            "dialog:allow-save",
+            "notification:default"
           ]
         }
       ]

@@ -7,7 +7,19 @@ mod planner_commands;
 mod gantt_db;
 mod gantt_commands;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::image::Image;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
+
+/// Global flag the frontend can flip via the `set_close_to_tray` command.
+static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
+
+#[tauri::command]
+fn set_close_to_tray(enabled: bool) {
+    CLOSE_TO_TRAY.store(enabled, Ordering::Relaxed);
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,10 +32,74 @@ pub fn run() {
             app.manage(planner_db::PlannerDb(std::sync::Mutex::new(conn)));
             let gconn = gantt_db::initialize(&data_dir.join("gantt.db"))?;
             app.manage(gantt_db::GanttDb(std::sync::Mutex::new(gconn)));
+
+            // ── System tray ──────────────────────────────────────────────
+            let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
+            let hide_item = MenuItemBuilder::with_id("hide", "Hide").build(app)?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+
+            let tray_menu = MenuBuilder::new(app)
+                .item(&show_item)
+                .item(&hide_item)
+                .item(&separator)
+                .item(&quit_item)
+                .build()?;
+
+            let tray_icon = Image::from_path("icons/tray-icon.png")
+                .unwrap_or_else(|_| Image::from_path("icons/32x32.png").expect("fallback icon"));
+
+            let _tray = TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("Dev Toolkit")
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "hide" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                        if let Some(w) = tray.app_handle().get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // ── Intercept window close → hide to tray ────────────────────
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
+                    }
+                }
+            });
+
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            set_close_to_tray,
+
             terminal::spawn_terminal,
             terminal::write_to_terminal,
             terminal::resize_terminal,

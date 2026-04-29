@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { openPath } from "@tauri-apps/plugin-opener";
   import { tick } from "svelte";
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
@@ -312,6 +313,16 @@
 
     if (action === 'open_in_editor' && targetFile) {
       openInEditor(targetFile);
+      return;
+    }
+
+    if (action === 'open_default' && targetFileName) {
+      try {
+        const fullPath = joinPath(currentPath, targetFileName);
+        await openPath(fullPath);
+      } catch (e) {
+        console.error('Failed to open with default app:', e);
+      }
       return;
     }
 

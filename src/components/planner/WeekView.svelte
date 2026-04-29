@@ -169,7 +169,7 @@
 
   function minsFromMouseY(e: MouseEvent, column: HTMLElement): number {
     const rect = column.getBoundingClientRect();
-    const y = e.clientY - rect.top + (bodyEl?.scrollTop ?? 0);
+    const y = e.clientY - rect.top; // rect.top is viewport-relative (already reflects scroll)
     const raw = Math.floor((y / HOUR_PX) * 60);
     return Math.max(0, Math.min(23 * 60 + 59, Math.round(raw / 15) * 15));
   }
@@ -246,144 +246,150 @@
   on:close={closeModal}
 />
 
-<div class="week-view">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="week-view" bind:this={bodyEl}>
 
-  <!-- ── Header: day names + dates ── -->
-  <div class="header">
-    <div class="gutter-spacer"></div>
-    {#each days as day, i}
-      <div class="col-header" class:today={isToday(day)}>
-        <span class="col-dow">{DAY_NAMES[day.getDay()]}</span>
-        <span class="col-date" class:today-badge={isToday(day)}>{day.getDate()}</span>
-        <span class="col-month">{MONTH_ABBR[day.getMonth()]}</span>
-      </div>
-    {/each}
-  </div>
-
-  <!-- ── All-day row ── -->
-  {#if allDayByDay.some(d => d.length > 0)}
-    <div class="allday-row">
-      <div class="gutter-allday">all-day</div>
-      {#each allDayByDay as dayEvts, i}
-        <div class="allday-col">
-          {#each dayEvts as evt (evt.id)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              class="allday-evt"
-              style:background={evt.color}
-              onclick={(e) => openEdit(evt, e)}
-              title={evt.title}
-            >
-              {#if isRecurring(evt.id)}
-                <svg class="recur-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-                </svg>
-              {/if}
-              {evt.title}
-            </div>
-          {/each}
+  <!-- ── Sticky header band (header + optional all-day row) ── -->
+  <div class="top-sticky">
+    <div class="header">
+      <div class="gutter-spacer"></div>
+      {#each days as day, i}
+        <div class="col-header" class:today={isToday(day)}>
+          <span class="col-dow">{DAY_NAMES[day.getDay()]}</span>
+          <span class="col-date" class:today-badge={isToday(day)}>{day.getDate()}</span>
+          <span class="col-month">{MONTH_ABBR[day.getMonth()]}</span>
         </div>
       {/each}
     </div>
-  {/if}
 
-  <!-- ── Time grid body ── -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="body" bind:this={bodyEl}>
-    <div class="body-inner" style:height="{24 * HOUR_PX}px">
-
-      <!-- Time gutter -->
-      <div class="gutter">
-        {#each HOURS as h}
-          <div class="gutter-label" style:top="{h * HOUR_PX}px">
-            {#if h > 0}{fmtTime12(h * 60)}{/if}
-          </div>
-        {/each}
-      </div>
-
-      <!-- Hour lines -->
-      <div class="lines-layer">
-        {#each HOURS as h}
-          <div class="hour-line" style:top="{h * HOUR_PX}px"></div>
-        {/each}
-      </div>
-
-      <!-- Day columns -->
-      <div class="columns">
-        {#each days as day, i}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="day-column"
-            onmousedown={(e) => onColumnMouseDown(e, i)}
-          >
-            <!-- Drag highlight -->
-            {#if dragHighlight(i)}
-              <div
-                class="drag-highlight"
-                style:top="{dragHighlight(i)!.top}px"
-                style:height="{dragHighlight(i)!.height}px"
-              ></div>
-            {/if}
-
-            <!-- Current time indicator -->
-            {#if isToday(day)}
-              <div class="now-line" style:top="{currentMins * (HOUR_PX / 60)}px">
-                <div class="now-dot"></div>
-              </div>
-            {/if}
-
-            <!-- Events -->
-            {#each layoutByDay[i] as le (le.event.id)}
+    {#if allDayByDay.some(d => d.length > 0)}
+      <div class="allday-row">
+        <div class="gutter-allday">all-day</div>
+        {#each allDayByDay as dayEvts, i}
+          <div class="allday-col">
+            {#each dayEvts as evt (evt.id)}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
-                class="evt-block"
-                style:top="{le.top}px"
-                style:height="{le.height}px"
-                style:left="calc({le.col} / {le.maxCols} * 100% + 2px)"
-                style:width="calc(100% / {le.maxCols} - 4px)"
-                style:background={le.event.color}
-                onclick={(e) => openEdit(le.event, e)}
-                title={le.event.title}
+                class="allday-evt"
+                style:background={evt.color}
+                onclick={(e) => openEdit(evt, e)}
+                title={evt.title}
               >
-                <div class="evt-title">
-                  {#if isRecurring(le.event.id)}
-                    <svg class="recur-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                      <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-                    </svg>
-                  {/if}
-                  {le.event.title}
-                </div>
-                {#if le.height >= 40}
-                  <div class="evt-time">
-                    {fmtTime12(Math.floor(le.top / HOUR_PX * 60))}
-                  </div>
+                {#if isRecurring(evt.id)}
+                  <svg class="recur-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                  </svg>
                 {/if}
+                {evt.title}
               </div>
             {/each}
           </div>
         {/each}
       </div>
+    {/if}
+  </div>
 
+  <!-- ── Time grid (scrolls under the sticky header) ── -->
+  <div class="time-grid" style:height="{24 * HOUR_PX}px">
+
+    <!-- Time gutter -->
+    <div class="gutter">
+      {#each HOURS as h}
+        <div class="gutter-label" style:top="{h * HOUR_PX}px">
+          {#if h > 0}{fmtTime12(h * 60)}{/if}
+        </div>
+      {/each}
     </div>
+
+    <!-- Hour lines -->
+    <div class="lines-layer">
+      {#each HOURS as h}
+        <div class="hour-line" style:top="{h * HOUR_PX}px"></div>
+      {/each}
+    </div>
+
+    <!-- Day columns -->
+    <div class="columns">
+      {#each days as day, i}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="day-column"
+          onmousedown={(e) => onColumnMouseDown(e, i)}
+        >
+          <!-- Drag highlight -->
+          {#if dragHighlight(i)}
+            <div
+              class="drag-highlight"
+              style:top="{dragHighlight(i)!.top}px"
+              style:height="{dragHighlight(i)!.height}px"
+            ></div>
+          {/if}
+
+          <!-- Current time indicator -->
+          {#if isToday(day)}
+            <div class="now-line" style:top="{currentMins * (HOUR_PX / 60)}px">
+              <div class="now-dot"></div>
+            </div>
+          {/if}
+
+          <!-- Events -->
+          {#each layoutByDay[i] as le (le.event.id)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="evt-block"
+              style:top="{le.top}px"
+              style:height="{le.height}px"
+              style:left="calc({le.col} / {le.maxCols} * 100% + 2px)"
+              style:width="calc(100% / {le.maxCols} - 4px)"
+              style:background={le.event.color}
+              onclick={(e) => openEdit(le.event, e)}
+              title={le.event.title}
+            >
+              <div class="evt-title">
+                {#if isRecurring(le.event.id)}
+                  <svg class="recur-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                  </svg>
+                {/if}
+                {le.event.title}
+              </div>
+              {#if le.height >= 40}
+                <div class="evt-time">
+                  {fmtTime12(Math.floor(le.top / HOUR_PX * 60))}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/each}
+    </div>
+
   </div>
 
 </div>
 
 <style>
   .week-view {
-    display: flex;
-    flex-direction: column;
     height: 100%;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     background: var(--bg-main);
+  }
+  .week-view::-webkit-scrollbar { width: 6px; }
+  .week-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Sticky band (header + all-day) ────────────────────────────────── */
+  .top-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 20;
   }
 
   /* ── Header ─────────────────────────────────────────────────────────── */
   .header {
     display: flex;
-    flex-shrink: 0;
     background: var(--bg-panel);
     border-bottom: 1px solid var(--border);
   }
@@ -442,7 +448,6 @@
   /* ── All-day row ─────────────────────────────────────────────────────── */
   .allday-row {
     display: flex;
-    flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     min-height: 28px;
     background: var(--bg-panel);
@@ -451,6 +456,7 @@
   .gutter-allday {
     width: 52px;
     flex-shrink: 0;
+    box-sizing: border-box; /* padding must not add to the 52px gutter width */
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -488,19 +494,11 @@
   }
   .allday-evt:hover { opacity: 1; }
 
-  /* ── Body ────────────────────────────────────────────────────────────── */
-  .body {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    position: relative;
-  }
-  .body::-webkit-scrollbar { width: 6px; }
-  .body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-  .body-inner {
+  /* ── Time grid ───────────────────────────────────────────────────────── */
+  .time-grid {
     display: flex;
     position: relative;
+    flex-shrink: 0;
   }
 
   /* ── Gutter ──────────────────────────────────────────────────────────── */

@@ -1,9 +1,9 @@
 <script lang="ts">
-  export let value: string;
+  export let value: string | number;
   export let label: string = '';
-  
+
   // Options can be passed as an array of objects
-  export let options: { value: string; label: string }[] = [];
+  export let options: { value: string | number; label: string }[] = [];
 </script>
 
 <div class="form-group">

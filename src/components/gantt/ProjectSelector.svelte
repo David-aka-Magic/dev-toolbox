@@ -60,7 +60,10 @@
     </button>
 
     {#each $projects as p (p.id)}
-      <button class="card card-project" onclick={() => selectProject(p)}>
+      <div class="card card-project" role="button" tabindex="0"
+        onclick={() => selectProject(p)}
+        onkeydown={(e) => e.key === 'Enter' && selectProject(p)}
+      >
 
         <div class="card-top">
           <span class="card-name">{p.name}</span>
@@ -89,7 +92,7 @@
           <span class="meta-item zoom-badge">{p.zoom_level}</span>
         </div>
 
-      </button>
+      </div>
     {/each}
 
   </div>

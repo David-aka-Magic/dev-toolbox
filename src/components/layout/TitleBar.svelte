@@ -1,7 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { currentView } from '$lib/stores/viewStore';
-  
+  import { settings } from '$lib/stores/settingsStore';
+
   import TerminalTabs from '../terminal/TerminalTabs.svelte';
   import AddressBar from '../filesystem/AddressBar.svelte';
   import FileTabs from '../filesystem/FileTabs.svelte';
@@ -10,7 +11,13 @@
   const appWindow = getCurrentWindow();
   function minimize() { appWindow.minimize(); }
   function maximize() { appWindow.toggleMaximize(); }
-  function closeWindow() { appWindow.close(); }
+  function closeWindow() {
+    if ($settings.closeToTray) {
+      appWindow.hide();
+    } else {
+      appWindow.close();
+    }
+  }
 </script>
 
 <div class="drag-handle-top" data-tauri-drag-region></div>

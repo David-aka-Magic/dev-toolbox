@@ -11,6 +11,7 @@ export interface NavItem {
 interface Settings {
   // General / Appearance
   globalFontFamily: string;
+  closeToTray: boolean;
 
   // Terminal Settings
   termFontSize: number;
@@ -65,6 +66,10 @@ interface Settings {
   mediaScreenshotPath: string;
   mediaDefaultVolume: number;
 
+  // Planner / Notifications
+  plannerNotificationsEnabled: boolean;
+  plannerNotifyMinutesBefore: number;
+
   // Gantt Chart Settings
   ganttDefaultZoom: 'days' | 'weeks' | 'months';
   ganttShowWeekends: boolean;
@@ -81,6 +86,7 @@ interface Settings {
 const defaultSettings: Settings = {
   // General / Appearance
   globalFontFamily: 'Segoe UI',
+  closeToTray: true,
 
   // Terminal
   termFontSize: 14,
@@ -134,6 +140,10 @@ const defaultSettings: Settings = {
   // Media Player
   mediaScreenshotPath: '',
   mediaDefaultVolume: 1.0,
+
+  // Planner / Notifications
+  plannerNotificationsEnabled: true,
+  plannerNotifyMinutesBefore: 5,
 
   // Gantt Chart
   ganttDefaultZoom: 'weeks',
