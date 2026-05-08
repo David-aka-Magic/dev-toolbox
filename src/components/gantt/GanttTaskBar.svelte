@@ -7,28 +7,30 @@
     y,
     width,
     height,
-    isSelected    = false,
-    isDragging    = false,
-    isSummary     = false,
-    isCritical    = false,
-    showProgress  = true,
-    onbardown     = (_e: MouseEvent, _mode: 'move'|'resize-left'|'resize-right') => {},
-    ondblclick    = (_e: MouseEvent) => {},
-    oncontextmenu = (_e: MouseEvent) => {},
+    isSelected      = false,
+    isDragging      = false,
+    isSummary       = false,
+    isCritical      = false,
+    isChildOverlay  = false,
+    showProgress    = true,
+    onbardown       = (_e: MouseEvent, _mode: 'move'|'resize-left'|'resize-right') => {},
+    ondblclick      = (_e: MouseEvent) => {},
+    oncontextmenu   = (_e: MouseEvent) => {},
   }: {
-    task:           GanttTask;
-    x:              number;
-    y:              number;
-    width:          number;
-    height:         number;
-    isSelected?:    boolean;
-    isDragging?:    boolean;
-    isSummary?:     boolean;
-    isCritical?:    boolean;
-    showProgress?:  boolean;
-    onbardown?:     (e: MouseEvent, mode: 'move'|'resize-left'|'resize-right') => void;
-    ondblclick?:    (e: MouseEvent) => void;
-    oncontextmenu?: (e: MouseEvent) => void;
+    task:             GanttTask;
+    x:                number;
+    y:                number;
+    width:            number;
+    height:           number;
+    isSelected?:      boolean;
+    isDragging?:      boolean;
+    isSummary?:       boolean;
+    isCritical?:      boolean;
+    isChildOverlay?:  boolean;
+    showProgress?:    boolean;
+    onbardown?:       (e: MouseEvent, mode: 'move'|'resize-left'|'resize-right') => void;
+    ondblclick?:      (e: MouseEvent) => void;
+    oncontextmenu?:   (e: MouseEvent) => void;
   } = $props();
 
   function handleMouseDown(e: MouseEvent) {
@@ -88,6 +90,17 @@
     <div class="summary-cap summary-cap-l" style:border-top-color={task.color}></div>
     <div class="summary-cap summary-cap-r" style:border-top-color={task.color}></div>
   </div>
+{:else if isChildOverlay}
+  <!-- Child overlay: decorative thin strip on parent row, non-interactive -->
+  <div
+    class="bar-child-overlay"
+    style:left="{x}px"
+    style:top="{y}px"
+    style:width="{width}px"
+    style:height="{height}px"
+    style:background={task.color}
+    role="presentation"
+  ></div>
 {:else}
   <!-- Normal / sub-task bar -->
   <div
@@ -166,6 +179,14 @@
     height: 8px;
     border-radius: 2px;
     overflow: visible;
+  }
+
+  /* Child overlay: thin decorative strip on parent row */
+  .bar-child-overlay {
+    position: absolute;
+    border-radius: 2px;
+    pointer-events: none;
+    opacity: 0.6;
   }
 
   /* Triangle caps on summary bar */

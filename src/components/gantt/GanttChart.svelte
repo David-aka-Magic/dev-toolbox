@@ -684,11 +684,6 @@
     if (ri === -1) return null;
     const row = rows[ri] as Extract<Row, { kind: 'task' }>;
     const task = row.task;
-    if (row.isParent) {
-      const sb = getSummaryBounds(task.id);
-      if (!sb) return null;
-      return { leftX: sb.x, rightX: sb.x + sb.w, centerY: ri * ROW_H + ROW_H / 2 };
-    }
     const lx = dateToX(parseDate(task.start_date));
     const rx = lx + Math.max(barWidth(task), 6);
     return { leftX: lx, rightX: rx, centerY: ri * ROW_H + ROW_H / 2 };
@@ -1045,10 +1040,7 @@
         const title = row.task.title.length > 24 ? row.task.title.slice(0,22) + '…' : row.task.title;
         parts.push(`<text x="24" y="${ry+ROW_H/2+4}" font-size="11" fill="#ddd">${escXml(title)}</text>`);
 
-        if (row.isParent) {
-          const sb = getSummaryBounds(row.task.id);
-          if (sb) parts.push(`<rect x="${tX+sb.x}" y="${ry+ROW_H/2-4}" width="${sb.w}" height="8" rx="2" fill="${escXml(color)}"/>`);
-        } else if (row.task.start_date === row.task.end_date) {
+        if (row.task.start_date === row.task.end_date) {
           const dx = tX + dateToX(parseDate(row.task.start_date));
           parts.push(`<rect x="${dx-7}" y="${ry+ROW_H/2-7}" width="14" height="14" rx="2" fill="${escXml(color)}" transform="rotate(45,${dx},${ry+ROW_H/2})"/>`);
         } else {
@@ -1061,6 +1053,14 @@
           if (bw > 36) {
             const lbl = row.task.title.length > 14 ? row.task.title.slice(0,12) + '…' : row.task.title;
             parts.push(`<text x="${bx+6}" y="${by2+bh/2+4}" font-size="9" font-weight="600" fill="white">${escXml(lbl)}</text>`);
+          }
+          if (row.isParent) {
+            const overlayY = ry + (ROW_H + 26) / 2 + 1;
+            for (const child of $tasks.filter(t => t.parent_task_id === row.task.id && t.start_date !== t.end_date)) {
+              const cbx = tX + dateToX(parseDate(child.start_date));
+              const cbw = Math.max(barWidth(child), 4);
+              parts.push(`<rect x="${cbx}" y="${overlayY}" width="${cbw}" height="4" rx="2" fill="${escXml(child.color)}" opacity="0.6"/>`);
+            }
           }
         }
       } else if (row.kind === 'milestone') {
@@ -1504,27 +1504,8 @@
               <!-- Row stripe -->
               <div class="row-stripe" class:row-stripe-alt={ri % 2 === 1} style:top="{rowY}px" style:height="{ROW_H}px" style:width="{columns.length * colW}px"></div>
 
-              {#if row.isParent}
-                <!-- Summary bar (spans children range) -->
-                {@const sb = getSummaryBounds(row.task.id)}
-                {#if sb}
-                  <GanttTaskBar
-                    task={row.task}
-                    x={sb.x}
-                    y={rowY + ROW_H / 2 - 4}
-                    width={sb.w}
-                    height={8}
-                    isSummary={true}
-                    isCritical={showCriticalPath && criticalPathIds.has(row.task.id)}
-                    isSelected={$selectedTaskId === row.task.id}
-                    isDragging={drag?.taskId === row.task.id}
-                    onbardown={() => {}}
-                    ondblclick={() => openTaskModal(row.task)}
-                    oncontextmenu={(e) => onBarContextMenu(e, row.task)}
-                  />
-                {/if}
-              {:else if row.task.start_date === row.task.end_date}
-                <!-- Zero-duration: render as a task diamond -->
+              {#if row.task.start_date === row.task.end_date}
+                <!-- Zero-duration: render as a task diamond (parent or leaf) -->
                 {@const zdx = dateToX(parseDate(row.task.start_date))}
                 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                 <div
@@ -1542,7 +1523,7 @@
                   aria-label={row.task.title}
                 ></div>
               {:else}
-                <!-- Normal / sub-task bar -->
+                <!-- Main bar — parent and leaf tasks both render their own full-size bar -->
                 {@const bh = row.indent > 0 ? 22 : 28}
                 <GanttTaskBar
                   task={row.task}
@@ -1558,6 +1539,22 @@
                   ondblclick={() => openTaskModal(row.task)}
                   oncontextmenu={(e) => onBarContextMenu(e, row.task)}
                 />
+              {/if}
+
+              <!-- Child overlays: thin strips below parent bar at each child's own date range.
+                   Children whose ranges overlap are shown overlapping — single-row display only. -->
+              {#if row.isParent}
+                {@const overlayY = rowY + (ROW_H + 28) / 2 + 1}
+                {#each $tasks.filter(t => t.parent_task_id === row.task.id && t.start_date !== t.end_date) as child (child.id)}
+                  <GanttTaskBar
+                    task={child}
+                    x={dateToX(parseDate(child.start_date))}
+                    y={overlayY}
+                    width={Math.max(barWidth(child), 4)}
+                    height={6}
+                    isChildOverlay={true}
+                  />
+                {/each}
               {/if}
 
             {:else}
@@ -1713,12 +1710,8 @@
         <svg class="minimap-svg" width={minimapWidth} height="40" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
           {#each rows as row, ri (rowKey(row, ri))}
             {#if row.kind === 'task'}
-              {@const bx = (row.isParent
-                ? (getSummaryBounds(row.task.id)?.x ?? dateToX(parseDate(row.task.start_date)))
-                : dateToX(parseDate(row.task.start_date))) * minimapScale}
-              {@const bw = Math.max((row.isParent
-                ? (getSummaryBounds(row.task.id)?.w ?? barWidth(row.task))
-                : barWidth(row.task)) * minimapScale, 2)}
+              {@const bx = dateToX(parseDate(row.task.start_date)) * minimapScale}
+              {@const bw = Math.max(barWidth(row.task) * minimapScale, 2)}
               {@const by = (ri / Math.max(rows.length, 1)) * 38 + 1}
               {@const bh = Math.max(38 / Math.max(rows.length, 1) - 0.5, 1.5)}
               <rect x={bx} y={by} width={bw} height={bh} fill={row.task.color} opacity="0.75" rx="0.5"/>
